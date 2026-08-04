@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+*.nwb
+nwb_output/
+nwb_stub/
+.env
+*.log
+.DS_Store
+.vscode/
+.idea/
