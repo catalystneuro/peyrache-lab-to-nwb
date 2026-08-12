@@ -26,7 +26,7 @@ Questions that need lab input before the conversion can be finalized or uploaded
 
 ## Subject metadata
 
-**Q7** — For each subject, provide: sex (M/F/U), date of birth (or age at recording), weight, genotype, and GCaMP variant (GCaMP6f / GCaMP7f / other). Species assumed `Rattus norvegicus` — please confirm.
+**Q7** *(partially resolved — confirmed from DANDI:001676 NWB files 2026-08-12)* — Species: `Mus musculus`. Genotype: `C57BL/6J`. Sex: `M`. GCaMP variant: `GCaMP6f`. Example subject A0642 has age `P243D`. Outstanding: confirm per-subject date-of-birth / age-at-recording and weight from lab records so per-session `age` can be set in `convert_session.py`.
 
 **Q8** — Session timezone confirmed as `America/Toronto` (McGill, Montréal)?
 
@@ -36,4 +36,4 @@ Questions that need lab input before the conversion can be finalized or uploaded
 
 **Q5** — Does the OptiTrack rigid body track head direction, body position, or both? Which physical marker/attachment is it tracking?
 
-**Q6** — Excitation wavelength for the Miniscope LED: is it 470 nm? (Used in `miniscope_arc_metadata.yaml`.)
+**Q6** *(resolved — confirmed from DANDI:001676 NWB files 2026-08-12)* — Excitation wavelength: `470.0 nm`. Emission wavelength (GreenChannel): `525.0 nm`. Both are stored in the existing NWB ImagingPlane and now in `metadata.yaml`.
