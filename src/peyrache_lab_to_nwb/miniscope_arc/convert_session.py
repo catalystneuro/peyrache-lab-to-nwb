@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from neuroconv.utils import dict_deep_update, load_dict_from_file
 
-from .miniscope_arc_nwbconverter import MiniscopeArcNWBConverter
+from .nwbconverter import MiniscopeArcNWBConverter
 
 # McGill University, Montréal — Eastern Time
 _SESSION_TZ = ZoneInfo("America/Toronto")
@@ -142,7 +142,7 @@ def session_to_nwb(
             metadata["NWBFile"]["session_start_time"] = start_time.replace(tzinfo=_SESSION_TZ)
 
         # Layer 2: merge hand-edited lab-level metadata from YAML
-        metadata_yaml_path = Path(__file__).parent / "miniscope_arc_metadata.yaml"
+        metadata_yaml_path = Path(__file__).parent / "metadata.yaml"
         editable_metadata = load_dict_from_file(metadata_yaml_path)
         metadata = dict_deep_update(metadata, editable_metadata)
 
