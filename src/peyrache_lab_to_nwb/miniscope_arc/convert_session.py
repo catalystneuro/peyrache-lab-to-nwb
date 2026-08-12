@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from neuroconv.utils import dict_deep_update, load_dict_from_file
 
-from .nwbconverter import MiniscopeArcNWBConverter
+from .nwbconverter import MiniscopeArcNWBConverter, _INTAN_ADC_STREAM
 
 # McGill University, Montréal — Eastern Time
 _SESSION_TZ = ZoneInfo("America/Toronto")
@@ -16,6 +16,17 @@ _SESSION_TZ = ZoneInfo("America/Toronto")
 # TODO (open question Q3): confirm the session-ID convention against DANDI:001676
 # before the first upload.  Current convention: "{subject_id}_{YYYY_MM_DD}"
 # e.g. "A0662_2022_07_28".
+
+
+def _intan_adc_is_valid(intan_dir: Path) -> bool:
+    """Return True only when the Intan directory has non-empty ADC data files."""
+    return (
+        (intan_dir / "info.rhd").is_file()
+        and (intan_dir / "time.dat").is_file()
+        and (intan_dir / "analogin.dat").is_file()
+        and (intan_dir / "time.dat").stat().st_size > 0
+        and (intan_dir / "analogin.dat").stat().st_size > 0
+    )
 
 
 def session_to_nwb(
@@ -102,16 +113,24 @@ def session_to_nwb(
     elif verbose:
         print(f"Warning: no Miniscope directory found in {session_dir_path}")
 
-    # Intan directory for hardware sync decoding
+    # Intan ADC channels — both stored together as TimeSeriesIntanSync in acquisition
+    # and used for hardware-sync timestamp derivation.  Skipped when files are absent
+    # or empty (e.g. session 2022_07_25); Miniscope then falls back to USB timestamps.
     intan_dir = session_dir_path / "Intan"
-    intan_dir_path = intan_dir if intan_dir.is_dir() else None
+    if intan_dir.is_dir() and _intan_adc_is_valid(intan_dir):
+        source_data["IntanSync"] = dict(
+            file_path=str(intan_dir / "info.rhd"),
+            stream_name=_INTAN_ADC_STREAM,
+            metadata_key="TimeSeriesIntanSync",
+        )
+    elif verbose:
+        print(f"Warning: Intan ADC data absent or empty in {intan_dir} — falling back to USB timestamps.")
 
     # ------------------------------------------------------------------ #
     # Instantiate converter                                               #
     # ------------------------------------------------------------------ #
     converter = MiniscopeArcNWBConverter(
         source_data=source_data,
-        intan_dir_path=intan_dir_path,
         verbose=verbose,
     )
 
