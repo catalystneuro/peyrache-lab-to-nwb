@@ -35,12 +35,10 @@ def session_to_nwb(
         │   ├── 0.avi, 1.avi, …   # MJPEG video chunks (2 000 frames each)
         │   ├── metaData.json
         │   └── timeStamps.csv
-        ├── Intan/
-        │   ├── info.rhd
-        │   ├── time.dat           # int32 sample indices at 20 kHz
-        │   └── analogin.dat       # uint16 ADC data (2 channels × N samples)
-        └── Tracking/
-            └── Take {date} {time}.csv   # OptiTrack Motive v1.23 export
+        └── Intan/
+            ├── info.rhd
+            ├── time.dat           # int32 sample indices at 20 kHz
+            └── analogin.dat       # uint16 ADC data (2 channels × N samples)
 
     The subject ID and session date are inferred from the directory structure::
 
@@ -103,19 +101,6 @@ def session_to_nwb(
         conversion_options["MiniscopeImaging"] = dict(stub_test=stub_test)
     elif verbose:
         print(f"Warning: no Miniscope directory found in {session_dir_path}")
-
-    # OptiTrack tracking — only for fresh (non-append) conversions
-    if append_to_nwb_path is None:
-        tracking_dir = session_dir_path / "Tracking"
-        if tracking_dir.is_dir():
-            tracking_files = sorted(tracking_dir.glob("Take *.csv"))
-            if tracking_files:
-                source_data["OptiTrack"] = dict(file_path=str(tracking_files[0]))
-                conversion_options["OptiTrack"] = dict(stub_test=stub_test)
-                if len(tracking_files) > 1 and verbose:
-                    print(
-                        f"Warning: multiple Take*.csv files found; using {tracking_files[0].name}"
-                    )
 
     # Intan directory for hardware sync decoding
     intan_dir = session_dir_path / "Intan"
