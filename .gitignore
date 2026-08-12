@@ -12,3 +12,6 @@ nwb_stub/
 .DS_Store
 .vscode/
 .idea/
+
+# Virtual environment
+.venv/
