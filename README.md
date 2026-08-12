@@ -43,7 +43,7 @@ cd peyrache-lab-to-nwb
 
 uv venv
 source .venv/bin/activate
-uv pip install -e ".[miniscope_arc]"
+uv pip install -e .
 ```
 
 ---

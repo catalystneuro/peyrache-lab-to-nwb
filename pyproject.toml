@@ -17,14 +17,6 @@ classifiers = [
 dependencies = [
     "neuroconv",
     "nwbinspector",
-]
-
-[project.urls]
-Repository = "https://github.com/catalystneuro/peyrache-lab-to-nwb"
-
-[project.optional-dependencies]
-miniscope_arc = [
-    "neuroconv",
     "ndx-miniscope",
     "roiextractors",
     "pandas",
@@ -32,6 +24,9 @@ miniscope_arc = [
     "tqdm",
     "hdmf",
 ]
+
+[project.urls]
+Repository = "https://github.com/catalystneuro/peyrache-lab-to-nwb"
 
 [dependency-groups]
 dev = [
