@@ -25,7 +25,7 @@
 
 ## Experiment Overview
 
-SFARI Autism Rat Models Consortium (ARC) project. Rats implanted with UCLA Miniscope V4 for calcium imaging while freely exploring an arena. Behavioral position tracked via OptiTrack Motive 3D motion capture. Intan RHD system used for electrophysiology/sync acquisition. Sessions span months for longitudinal head-direction cell stability study.
+Longitudinal recording of GCaMP6f-expressing cells in the **PostSubiculum** of freely-moving **C57BL/6J mice** (*Mus musculus*, male) using a UCLA Miniscope V4 one-photon fluorescence microscope. Mice explored different environments over several months to study the long-term stability of head-direction cell representations. Behavioural position tracked by OptiTrack Motive 3D motion capture. Intan RHD system used for hardware synchronisation.
 
 ---
 
@@ -236,11 +236,20 @@ Overlap (all three systems active and synced): **3.46 – 1201.85 s (1198.4 s = 
 
 ## Interface Mapping
 
-| Stream | Interface | source_data | Status |
-|--------|-----------|-------------|--------|
-| Miniscope video | `MiniscopeImagingInterface` | `folder_path=.../Miniscope` | Ready to test |
-| Intan analog inputs | `IntanRecordingInterface` | `folder_path=.../Intan` | Needs verification (analog-only) |
-| OptiTrack tracking | CUSTOM `OptiTrackInterface` | `file_path=.../Take*.csv` | Needs implementation |
+| Stream | Interface | source_data | NWB output | Status |
+|--------|-----------|-------------|------------|--------|
+| Miniscope video | `MiniscopeImagingInterface` | `folder_path=.../Miniscope` | `OnePhotonSeries` in acquisition | Ready to test |
+| Intan ADC inputs | `IntanAnalogInterface` | `file_path=.../Intan/info.rhd`, `stream_name="USB board ADC input channel"` | `TimeSeriesIntanSync` in acquisition | Implemented |
+| OptiTrack tracking | CUSTOM `OptiTrackInterface` | `file_path=.../Take*.csv` | `Position` + rotation `TimeSeries` in behavior | Deferred to separate PR |
+
+### Intan ADC — data provenance rationale
+
+The raw ADC traces (`TimeSeriesIntanSync`) are stored in the NWB file rather than discarded after timestamp extraction. The two channels carry the hardware sync signals from which all inter-system timestamps are derived:
+
+- **ADC-00** — OptiTrack frame sync (120 Hz TTL)
+- **ADC-01** — Miniscope frame gate (square wave; rising = even frame, falling = odd frame)
+
+Storing the raw waveforms means any future user can independently verify or re-derive the per-frame timestamps with a different threshold or algorithm, without needing access to the original Intan recording. The signals compress extremely well in HDF5 (mostly flat with sharp transitions), adding only ~2–5 MB per session in practice.
 
 ---
 
@@ -264,7 +273,7 @@ Overlap (all three systems active and synced): **3.46 – 1201.85 s (1198.4 s = 
 - [ ] **Q4**: Total dataset scale — how many subjects and sessions in the full raw Miniscope dataset?
 - [ ] **Q5**: Is the OptiTrack rigid body tracking head direction, body position, or both?
 - [ ] **Q6**: Are there additional sessions/subjects not yet uploaded to Google Drive?
-- [ ] **Q7**: Subject metadata for A0662 — species (Rattus norvegicus?), sex, date of birth, genotype, weight?
+- [x] **Q7** *(resolved 2026-08-12 from DANDI NWB stream)*: species=Mus musculus, genotype=C57BL/6J, sex=M, indicator=GCaMP6f. Per-subject date-of-birth / weight still needed from lab.
 - [ ] **Q8**: Session timezone — what timezone were recordings made in? (likely America/Toronto for McGill)
 
 ---
@@ -273,7 +282,7 @@ Overlap (all three systems active and synced): **3.46 – 1201.85 s (1198.4 s = 
 
 - [x] Phase 1: Experiment discovery — COMPLETE
 - [x] Phase 2: Data inspection — COMPLETE
-- [ ] Phase 3: Metadata collection — IN PROGRESS (open questions above)
+- [x] Phase 3: Metadata collection — COMPLETE (ophys metadata confirmed from DANDI:001676 NWB stream 2026-08-12; per-subject DoB/weight pending from lab)
 - [x] Phase 4: Synchronization analysis — COMPLETE (analyzed during data inspection; open Sync-Q1 through Q4)
 - [ ] Phase 5: Code generation
 - [ ] Phase 6: Testing & validation
