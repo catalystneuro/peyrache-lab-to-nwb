@@ -5,63 +5,81 @@ NWBFile:
     - miniscope
     - longitudinal recording
     - freely moving
-    - rat
-    - SFARI
+    - mouse
+    - navigation
+    - PostSubiculum
   related_publications:
     - doi:10.1101/2024.06.13.598909
   session_description: >
-    Raw calcium imaging (UCLA Miniscope V4) and OptiTrack 3-D motion capture
-    data from freely exploring rats.  Part of a longitudinal study of head-direction
-    cell stability over months.  This NWB file contains raw acquisition data;
-    corresponding processed data (DF/F, ROI footprints, CellReg registration) are
-    in DANDI:001676.
+    Raw one-photon calcium imaging (UCLA Miniscope V4) from the PostSubiculum of a
+    freely moving mouse during a longitudinal head-direction cell recording.
+    This NWB file contains raw acquisition data; corresponding processed data (DF/F,
+    ROI footprints, CellReg registration) are available in DANDI:001676.
   experiment_description: >
-    SFARI Autism Rat Models Consortium (ARC) project.  Rats were implanted with
-    a UCLA Miniscope V4 head-mounted fluorescence microscope for longitudinal
-    calcium imaging of head-direction cells in the anterodorsal thalamus during
-    free exploration of an open arena.  3-D head position and orientation were
-    tracked simultaneously using OptiTrack Motive motion capture.  An Intan RHD
-    system recorded hardware synchronisation signals (TTL pulses) connecting the
-    three recording systems to a common clock.
+    Longitudinal recording of GCaMP6f-expressing cells in the PostSubiculum of
+    freely-moving C57BL/6J mice using a UCLA Miniscope V4 one-photon fluorescence
+    microscope. Mice explored different environments over several months to characterise
+    the long-term stability of head-direction cell representations. Behavioural position
+    and head orientation were tracked simultaneously by an OptiTrack 3-D motion-capture
+    system. An Intan RHD system recorded hardware synchronisation signals (TTL pulses)
+    linking the three acquisition systems to a common clock.
   institution: McGill University
-  lab: Peyrache
+  lab: Peyrache Lab
   experimenter:
-    - Skromne Carrasco, Sol
+    - Skromne Carrasco, Sofia
     - Viejo, Guillaume
     - Peyrache, Adrien
 
 Subject:
-  species: Rattus norvegicus
+  species: Mus musculus
+  genotype: C57BL/6J
+  sex: M
   description: >
-    Adult rat implanted with a UCLA Miniscope V4 head-mounted fluorescence
-    microscope for longitudinal calcium imaging.  Subject is part of the
-    SFARI Autism Rat Models Consortium (ARC) cohort.
-  # TODO (open question Q7): fill in sex, date_of_birth, weight, genotype
-  # from lab records for each subject before DANDI upload.
-  # sex: U          # M / F / U / O
-  # age: P6M        # ISO 8601 duration
+    Adult male C57BL/6J mouse implanted with a UCLA Miniscope V4 head-mounted
+    fluorescence microscope for longitudinal calcium imaging of PostSubiculum
+    head-direction cells.
+  # age is session-specific (P243D for A0642); set per-session in convert_session.py
+  # from per-subject metadata once confirmed with the lab (open question Q7).
+
+TimeSeries:
+  TimeSeriesIntanSync:
+    name: TimeSeriesIntanSync
+    description: >
+      Intan RHD ADC input channels used for hardware synchronisation.
+      Channel 0 (ADC-00): OptiTrack sync — 120 Hz TTL pulses (0.5 ms width),
+      one rising edge per OptiTrack frame.
+      Channel 1 (ADC-01): Miniscope frame gate — square wave where each
+      half-period (≈ 40.6 ms) spans one Miniscope frame; rising edge = even
+      frame (0, 2, 4, …), falling edge = odd frame (1, 3, 5, …). Both edges
+      are decoded to produce the per-frame hardware timestamps stored in
+      OnePhotonSeries.
 
 Ophys:
+  Device:
+    - name: 1p Miniscope
+      description: UCLA Miniscope V4
+      manufacturer: UCLA / Open Ephys
+  ImagingPlane:
+    - name: ImagingPlane
+      description: Longitudinal recording of cells in the PostSubiculum
+      excitation_lambda: 470.0      # nm — 470 nm blue LED (GCaMP6f excitation)
+      location: PostSubiculum
+      indicator: GCaMP6f
+      grid_spacing: [0.0033, 0.0033]   # mm/pixel ≈ 3.3 µm/pixel (UCLA Miniscope V4)
+      grid_spacing_unit: millimeters
+      origin_coords: [-2.35, 0.32, -1.3]   # AP, ML, DV mm from bregma
+      origin_coords_unit: millimeters
+      optical_channel:
+        - name: GreenChannel
+          description: Green emission channel for GCaMP6f fluorescence detection
+          emission_lambda: 525.0    # nm — green emission filter centre
+      device: 1p Miniscope
   OnePhotonSeries:
     - name: OnePhotonSeries
       description: >
         Raw calcium imaging video from a UCLA Miniscope V4 one-photon fluorescence
-        microscope.  Data are acquired as MJPEG-compressed AVI chunks (2 000 frames
-        each) and stored here as a single concatenated array.  Timestamps are derived
-        from the Intan hardware sync channel (ADC-01, square-wave frame gate) rather
-        than from the Miniscope USB timestamps, which exhibit up to 236 ms of clock
-        drift over a 20-minute session.
+        microscope. Data are acquired as MJPEG-compressed AVI chunks (2 000 frames each).
+        Timestamps are derived from the Intan hardware sync channel (ADC-01, Miniscope
+        frame-gate square wave) rather than from the Miniscope USB timestamps, which
+        exhibit clock drift relative to the hardware clock.
       unit: n.a.
-  ImagingPlane:
-    - name: ImagingPlane
-      description: >
-        Imaging plane for UCLA Miniscope V4 one-photon calcium imaging.
-        Brain region and depth are stored in the associated processed NWB file
-        (DANDI:001676).
-      excitation_lambda: 470.0      # nm — blue LED excitation for GCaMP
-      # TODO: confirm excitation wavelength from lab (LED0 specification)
-      location: unknown
-      indicator: GCaMP
-      # TODO (open question Q7): confirm GCaMP variant (GCaMP6f / GCaMP7f / etc.)
-      grid_spacing: [1.0, 1.0]
-      grid_spacing_unit: micrometers
