@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Optional
 
 import numpy as np
 
 from neuroconv import NWBConverter
 from neuroconv.datainterfaces import IntanAnalogInterface, MiniscopeImagingInterface
+
+# TODO: investigate why this is needed
+# neuroconv 0.9.3 calls get_channel_names() on all ImagingExtractors, but
+# roiextractors 0.9.x has not yet added it to MiniscopeImagingExtractor.
+# Patch it here so the single-channel (green) Miniscope extractor works.
+try:
+    from roiextractors.extractors.miniscopeimagingextractor.miniscopeimagingextractor import (
+        MiniscopeImagingExtractor,
+    )
+
+    if not hasattr(MiniscopeImagingExtractor, "get_channel_names"):
+        MiniscopeImagingExtractor.get_channel_names = lambda self: ["GreenChannel"]
+except ImportError:
+    pass
 
 # Stream name for Intan RHD ADC input channels
 _INTAN_ADC_STREAM = "USB board ADC input channel"
@@ -16,8 +31,9 @@ _INTAN_ADC_STREAM = "USB board ADC input channel"
 _CH_OPTITRACK = 0   # ADC-00: OptiTrack sync — 120 Hz TTL, 0.5 ms pulse per frame
 _CH_MINISCOPE = 1   # ADC-01: Miniscope frame gate — square wave, 2-frame cycle
 
-# Threshold (Volts) used to binarise sync channels for edge detection
-_ADC_THRESH = 1.0
+# Threshold for binarising sync channels in Volts.
+# get_traces(return_scaled=True) returns μV; divide by 1e6 to get V.
+_ADC_THRESH_V = 1.0
 
 
 class MiniscopeArcNWBConverter(NWBConverter):
@@ -74,11 +90,11 @@ class MiniscopeArcNWBConverter(NWBConverter):
         if n_samples == 0:
             return
 
-        time_s = recording.get_times()                    # (n_samples,)
-        adc_v = recording.get_traces(return_scaled=True)  # (n_samples, 2)
+        time_s = recording.get_times()                           # (n_samples,) seconds
+        adc_v = recording.get_traces(return_scaled=True) / 1e6  # μV → V
 
         if "MiniscopeImaging" in self.data_interface_objects:
-            ch_above = (adc_v[:, _CH_MINISCOPE] > _ADC_THRESH).astype(np.int8)
+            ch_above = (adc_v[:, _CH_MINISCOPE] > _ADC_THRESH_V).astype(np.int8)
             ch_diff = np.diff(ch_above)
             rising  = np.where(ch_diff == 1)[0]
             falling = np.where(ch_diff == -1)[0]
@@ -88,11 +104,19 @@ class MiniscopeArcNWBConverter(NWBConverter):
             ms_timestamps[0::2] = time_s[rising[:n]]   # even frames
             ms_timestamps[1::2] = time_s[falling[:n]]  # odd frames
 
-            self.data_interface_objects["MiniscopeImaging"].set_aligned_timestamps(ms_timestamps)
+            n_frames = self.data_interface_objects["MiniscopeImaging"].imaging_extractor.get_num_samples()
+            n_detected = len(ms_timestamps)
 
-            if self.verbose:
-                fps = len(ms_timestamps) / (ms_timestamps[-1] - ms_timestamps[0])
-                print(
-                    f"Miniscope: {len(ms_timestamps):,} synced frames "
-                    f"({fps:.4f} FPS actual — do NOT use rate=25.0)"
+            if n_detected < n_frames:
+                warnings.warn(
+                    f"Miniscope sync: only {n_detected} hardware timestamps detected "
+                    f"for {n_frames} video frames — {n_frames - n_detected} frames will "
+                    f"lack hardware timestamps. Check the Intan ADC-01 signal.",
+                    UserWarning,
+                    stacklevel=2,
                 )
+
+            # Trim the (typically small) tail where Intan runs past the last frame
+            ms_timestamps = ms_timestamps[:n_frames]
+
+            self.data_interface_objects["MiniscopeImaging"].set_aligned_timestamps(ms_timestamps)
