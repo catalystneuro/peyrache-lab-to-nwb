@@ -80,6 +80,4 @@ Ophys:
         Raw calcium imaging video from a UCLA Miniscope V4 one-photon fluorescence
         microscope. Data are acquired as MJPEG-compressed AVI chunks (2 000 frames each).
         Timestamps are derived from the Intan hardware sync channel (ADC-01, Miniscope
-        frame-gate square wave) rather than from the Miniscope USB timestamps, which
-        exhibit clock drift relative to the hardware clock.
-      unit: n.a.
+        frame-gate square wave).
