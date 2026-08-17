@@ -10,7 +10,8 @@ import numpy as np
 from neuroconv import NWBConverter
 from neuroconv.datainterfaces import IntanAnalogInterface, MiniscopeImagingInterface
 
-# TODO: investigate why this is needed
+from peyrache_lab_to_nwb.miniscope_arc.constants import ADC_THRESH_V, CH_MINISCOPE
+
 # neuroconv 0.9.3 calls get_channel_names() on all ImagingExtractors, but
 # roiextractors 0.9.x has not yet added it to MiniscopeImagingExtractor.
 # Patch it here so the single-channel (green) Miniscope extractor works.
@@ -23,17 +24,6 @@ try:
         MiniscopeImagingExtractor.get_channel_names = lambda self: ["GreenChannel"]
 except ImportError:
     pass
-
-# Stream name for Intan RHD ADC input channels
-_INTAN_ADC_STREAM = "USB board ADC input channel"
-
-# ADC channel indices within the two-channel analogin.dat
-_CH_OPTITRACK = 0   # ADC-00: OptiTrack sync — 120 Hz TTL, 0.5 ms pulse per frame
-_CH_MINISCOPE = 1   # ADC-01: Miniscope frame gate — square wave, 2-frame cycle
-
-# Threshold for binarising sync channels in Volts.
-# get_traces(return_scaled=True) returns μV; divide by 1e6 to get V.
-_ADC_THRESH_V = 1.0
 
 
 class MiniscopeArcNWBConverter(NWBConverter):
@@ -94,7 +84,7 @@ class MiniscopeArcNWBConverter(NWBConverter):
         adc_v = recording.get_traces(return_scaled=True) / 1e6  # μV → V
 
         if "MiniscopeImaging" in self.data_interface_objects:
-            ch_above = (adc_v[:, _CH_MINISCOPE] > _ADC_THRESH_V).astype(np.int8)
+            ch_above = (adc_v[:, CH_MINISCOPE] > ADC_THRESH_V).astype(np.int8)
             ch_diff = np.diff(ch_above)
             rising  = np.where(ch_diff == 1)[0]
             falling = np.where(ch_diff == -1)[0]
