@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 from neuroconv.utils import dict_deep_update, load_dict_from_file
 
-from .nwbconverter import MiniscopeArcNWBConverter, _INTAN_ADC_STREAM
+from peyrache_lab_to_nwb.miniscope_arc.nwbconverter import MiniscopeArcNWBConverter, _INTAN_ADC_STREAM
 
 # McGill University, Montréal — Eastern Time
 _SESSION_TZ = ZoneInfo("America/Toronto")
@@ -34,8 +36,8 @@ def session_to_nwb(
     output_dir_path: str | Path,
     append_to_nwb_path: Optional[str | Path] = None,
     stub_test: bool = False,
-    overwrite: bool = False,
-    verbose: bool = False,
+    overwrite: bool = True,
+    verbose: bool = True,
 ) -> None:
     """Convert one raw session to NWB.
 
@@ -86,9 +88,9 @@ def session_to_nwb(
     # ------------------------------------------------------------------ #
     # Resolve output path and write mode                                  #
     # ------------------------------------------------------------------ #
-    if append_to_nwb_path is not None:
+    append_mode = append_to_nwb_path is not None
+    if append_mode:
         nwbfile_path = Path(append_to_nwb_path)
-        write_mode = "r+"
         if verbose:
             print(f"[append mode] → {nwbfile_path}")
     else:
@@ -96,7 +98,6 @@ def session_to_nwb(
             output_dir_path = output_dir_path / "nwb_stub"
         output_dir_path.mkdir(parents=True, exist_ok=True)
         nwbfile_path = output_dir_path / f"sub-{subject_id}_ses-{session_date}.nwb"
-        write_mode = "w"
         if verbose:
             print(f"[new file] → {nwbfile_path}")
 
@@ -140,22 +141,32 @@ def session_to_nwb(
     metadata = converter.get_metadata()
 
     if append_to_nwb_path is None:
-        # Layer 1: attach timezone to auto-extracted session_start_time
+        # Layer 1: ensure session_start_time has timezone.
+        # MiniscopeImagingInterface reads it from a session-level metaData.json that
+        # the Peyrache lab data does not include, so fall back to midnight on the
+        # recording date (YYYY_MM_DD directory name) in Eastern Time.
         start_time = metadata["NWBFile"].get("session_start_time")
-        if start_time is not None and start_time.tzinfo is None:
-            metadata["NWBFile"]["session_start_time"] = start_time.replace(tzinfo=_SESSION_TZ)
+        if start_time is None:
+            y, m, d = session_date.split("_")
+            start_time = datetime(int(y), int(m), int(d), tzinfo=_SESSION_TZ)
+        elif start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=_SESSION_TZ)
+        metadata["NWBFile"]["session_start_time"] = start_time
 
         # Layer 2: merge hand-edited lab-level metadata from YAML
         metadata_yaml_path = Path(__file__).parent / "metadata.yaml"
         editable_metadata = load_dict_from_file(metadata_yaml_path)
-        metadata = dict_deep_update(metadata, editable_metadata)
+        metadata = dict_deep_update(metadata, editable_metadata, remove_repeats=False)
 
         # Layer 3: session-specific overrides
         metadata["NWBFile"]["session_id"] = session_id
 
+        # dict_deep_update deduplicates identical floats in lists, collapsing
+        # [0.0033, 0.0033] → [0.0033] (shape (1,) instead of the required (2,)).
+        metadata["Ophys"]["ImagingPlane"][0]["grid_spacing"] = [0.0033, 0.0033]
+
         # Subject — subject_id is required by DANDI; other fields come from the YAML
         # TODO (open question Q7): fill in per-subject sex, date_of_birth, weight from lab records
-        metadata.setdefault("Subject", {})
         metadata["Subject"]["subject_id"] = subject_id
 
     # ------------------------------------------------------------------ #
@@ -166,7 +177,7 @@ def session_to_nwb(
         metadata=metadata,
         conversion_options=conversion_options,
         overwrite=overwrite,
-        mode=write_mode,
+        append_on_disk_nwbfile=append_mode,
     )
 
     if verbose:
@@ -177,7 +188,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------ #
     # Example: new NWB file (stub test)                                   #
     # ------------------------------------------------------------------ #
-    _session = Path("~/source_data/peyrache-lab/A0662/2022_07_28").expanduser()
+    _session = Path("~/source_data/peyrache-lab-local/A0662/2022_07_28").expanduser()
     _out = Path("~/nwb_output/peyrache").expanduser()
 
     session_to_nwb(
