@@ -77,7 +77,7 @@ def session_to_nwb(
     if stub_test:
         output_dir_path = output_dir_path / "nwb_stub"
     output_dir_path.mkdir(parents=True, exist_ok=True)
-    nwbfile_path = output_dir_path / f"sub-{subject_id}_ses-{session_id}.nwb"
+    nwbfile_path = output_dir_path / f"sub-{subject_id}_ses-{session_id}_desc-raw_ophys.nwb"
     if verbose:
         print(f"[new file] → {nwbfile_path}")
 
@@ -160,8 +160,8 @@ def session_to_nwb(
 
 
 if __name__ == "__main__":
-    miniscope_folder_path = Path("~/source_data/peyrache-lab-local/A0662/2022_07_28").expanduser()
-    nwb_folder_path = Path("~/nwb_output/peyrache").expanduser()
+    miniscope_folder_path = Path("/Users/weian/source_data/peyrache-lab-local/A0662/2022_07_28")
+    nwb_folder_path = Path("/Users/weian/nwb_output/peyrache")
 
     session_to_nwb(
         session_dir_path=miniscope_folder_path,
