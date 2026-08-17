@@ -5,19 +5,15 @@ from __future__ import annotations
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-from zoneinfo import ZoneInfo
 
 from neuroconv.utils import dict_deep_update, load_dict_from_file
 
-from peyrache_lab_to_nwb.miniscope_arc.nwbconverter import MiniscopeArcNWBConverter, _INTAN_ADC_STREAM
-
-# McGill University, Montréal — Eastern Time
-_SESSION_TZ = ZoneInfo("America/Toronto")
+from peyrache_lab_to_nwb.miniscope_arc.constants import INTAN_ADC_STREAM, SESSION_TZ
+from peyrache_lab_to_nwb.miniscope_arc.nwbconverter import MiniscopeArcNWBConverter
 
 # TODO (open question Q3): confirm the session-ID convention against DANDI:001676
-# before the first upload.  Current convention: "{subject_id}_{YYYY_MM_DD}"
-# e.g. "A0662_2022_07_28".
+# before the first upload.  Current convention: "{subject_id}_{YYYY-MM-DD}"
+# e.g. "A0662_2022-07-28".
 
 
 def _intan_adc_is_valid(intan_dir: Path) -> bool:
@@ -34,7 +30,6 @@ def _intan_adc_is_valid(intan_dir: Path) -> bool:
 def session_to_nwb(
     session_dir_path: str | Path,
     output_dir_path: str | Path,
-    append_to_nwb_path: Optional[str | Path] = None,
     stub_test: bool = False,
     overwrite: bool = True,
     verbose: bool = True,
@@ -62,16 +57,10 @@ def session_to_nwb(
     session_dir_path
         Path to the session directory (``YYYY_MM_DD``).
     output_dir_path
-        Root directory for output NWB files (ignored when ``append_to_nwb_path``
-        is given).
-    append_to_nwb_path
-        If provided, the function *appends* the Miniscope data to this existing
-        NWB file instead of creating a new one.  Use this to add raw video to
-        already-converted sessions from DANDI:001676.  Only ``MiniscopeImaging``
-        is included in append mode (tracking data is already in the existing file).
+        Root directory for output NWB files.
     stub_test
         If ``True``, write only a short excerpt of each data stream to
-        ``{output_dir_path}/nwb_stub/``.  Ignored in append mode.
+        ``{output_dir_path}/nwb_stub/``.
     overwrite
         If ``True``, allow overwriting an existing output NWB file.
     verbose
@@ -81,25 +70,16 @@ def session_to_nwb(
     output_dir_path = Path(output_dir_path)
 
     # Derive identifiers from directory structure
-    session_date = session_dir_path.name          # "YYYY_MM_DD"
-    subject_id = session_dir_path.parent.name     # e.g. "A0662"
-    session_id = f"{subject_id}_{session_date}"
+    session_date = session_dir_path.name       # "YYYY_MM_DD"
+    subject_id = session_dir_path.parent.name  # e.g. "A0662"
+    session_id = session_date.replace("_", "-")  # e.g. "2022-07-28"
 
-    # ------------------------------------------------------------------ #
-    # Resolve output path and write mode                                  #
-    # ------------------------------------------------------------------ #
-    append_mode = append_to_nwb_path is not None
-    if append_mode:
-        nwbfile_path = Path(append_to_nwb_path)
-        if verbose:
-            print(f"[append mode] → {nwbfile_path}")
-    else:
-        if stub_test:
-            output_dir_path = output_dir_path / "nwb_stub"
-        output_dir_path.mkdir(parents=True, exist_ok=True)
-        nwbfile_path = output_dir_path / f"sub-{subject_id}_ses-{session_date}.nwb"
-        if verbose:
-            print(f"[new file] → {nwbfile_path}")
+    if stub_test:
+        output_dir_path = output_dir_path / "nwb_stub"
+    output_dir_path.mkdir(parents=True, exist_ok=True)
+    nwbfile_path = output_dir_path / f"sub-{subject_id}_ses-{session_id}.nwb"
+    if verbose:
+        print(f"[new file] → {nwbfile_path}")
 
     # ------------------------------------------------------------------ #
     # Build source_data                                                   #
@@ -121,7 +101,7 @@ def session_to_nwb(
     if intan_dir.is_dir() and _intan_adc_is_valid(intan_dir):
         source_data["IntanSync"] = dict(
             file_path=str(intan_dir / "info.rhd"),
-            stream_name=_INTAN_ADC_STREAM,
+            stream_name=INTAN_ADC_STREAM,
             metadata_key="TimeSeriesIntanSync",
         )
     elif verbose:
@@ -130,44 +110,40 @@ def session_to_nwb(
     # ------------------------------------------------------------------ #
     # Instantiate converter                                               #
     # ------------------------------------------------------------------ #
-    converter = MiniscopeArcNWBConverter(
-        source_data=source_data,
-        verbose=verbose,
-    )
+    converter = MiniscopeArcNWBConverter(source_data=source_data, verbose=verbose)
 
     # ------------------------------------------------------------------ #
     # Build metadata                                                      #
     # ------------------------------------------------------------------ #
     metadata = converter.get_metadata()
 
-    if append_to_nwb_path is None:
-        # Layer 1: ensure session_start_time has timezone.
-        # MiniscopeImagingInterface reads it from a session-level metaData.json that
-        # the Peyrache lab data does not include, so fall back to midnight on the
-        # recording date (YYYY_MM_DD directory name) in Eastern Time.
-        start_time = metadata["NWBFile"].get("session_start_time")
-        if start_time is None:
-            y, m, d = session_date.split("_")
-            start_time = datetime(int(y), int(m), int(d), tzinfo=_SESSION_TZ)
-        elif start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=_SESSION_TZ)
-        metadata["NWBFile"]["session_start_time"] = start_time
+    # Layer 1: ensure session_start_time has timezone.
+    # MiniscopeImagingInterface reads it from a session-level metaData.json that
+    # the Peyrache lab data does not include, so fall back to midnight on the
+    # recording date (YYYY_MM_DD directory name) in Eastern Time.
+    start_time = metadata["NWBFile"].get("session_start_time")
+    if start_time is None:
+        y, m, d = session_date.split("_")
+        start_time = datetime(int(y), int(m), int(d), tzinfo=SESSION_TZ)
+    elif start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=SESSION_TZ)
+    metadata["NWBFile"]["session_start_time"] = start_time
 
-        # Layer 2: merge hand-edited lab-level metadata from YAML
-        metadata_yaml_path = Path(__file__).parent / "metadata.yaml"
-        editable_metadata = load_dict_from_file(metadata_yaml_path)
-        metadata = dict_deep_update(metadata, editable_metadata, remove_repeats=False)
+    # Layer 2: merge hand-edited lab-level metadata from YAML
+    metadata_yaml_path = Path(__file__).parent / "metadata.yaml"
+    editable_metadata = load_dict_from_file(metadata_yaml_path)
+    metadata = dict_deep_update(metadata, editable_metadata, remove_repeats=False)
 
-        # Layer 3: session-specific overrides
-        metadata["NWBFile"]["session_id"] = session_id
+    # Layer 3: session-specific overrides
+    metadata["NWBFile"]["session_id"] = session_id
 
-        # dict_deep_update deduplicates identical floats in lists, collapsing
-        # [0.0033, 0.0033] → [0.0033] (shape (1,) instead of the required (2,)).
-        metadata["Ophys"]["ImagingPlane"][0]["grid_spacing"] = [0.0033, 0.0033]
+    # dict_deep_update deduplicates identical floats in lists, collapsing
+    # [0.0033, 0.0033] → [0.0033] (shape (1,) instead of the required (2,)).
+    metadata["Ophys"]["ImagingPlane"][0]["grid_spacing"] = [0.0033, 0.0033]
 
-        # Subject — subject_id is required by DANDI; other fields come from the YAML
-        # TODO (open question Q7): fill in per-subject sex, date_of_birth, weight from lab records
-        metadata["Subject"]["subject_id"] = subject_id
+    # Subject — subject_id is required by DANDI; other fields come from the YAML
+    # TODO (open question Q7): fill in per-subject sex, date_of_birth, weight from lab records
+    metadata["Subject"]["subject_id"] = subject_id
 
     # ------------------------------------------------------------------ #
     # Run conversion                                                      #
@@ -177,7 +153,6 @@ def session_to_nwb(
         metadata=metadata,
         conversion_options=conversion_options,
         overwrite=overwrite,
-        append_on_disk_nwbfile=append_mode,
     )
 
     if verbose:
@@ -185,32 +160,12 @@ def session_to_nwb(
 
 
 if __name__ == "__main__":
-    # ------------------------------------------------------------------ #
-    # Example: new NWB file (stub test)                                   #
-    # ------------------------------------------------------------------ #
-    _session = Path("~/source_data/peyrache-lab-local/A0662/2022_07_28").expanduser()
-    _out = Path("~/nwb_output/peyrache").expanduser()
+    miniscope_folder_path = Path("~/source_data/peyrache-lab-local/A0662/2022_07_28").expanduser()
+    nwb_folder_path = Path("~/nwb_output/peyrache").expanduser()
 
     session_to_nwb(
-        session_dir_path=_session,
-        output_dir_path=_out,
+        session_dir_path=miniscope_folder_path,
+        output_dir_path=nwb_folder_path,
         stub_test=True,
         verbose=True,
     )
-
-    # ------------------------------------------------------------------ #
-    # Example: append raw Miniscope video to an existing DANDI NWB file  #
-    # ------------------------------------------------------------------ #
-    # Workflow:
-    #   1. Download the existing file from DANDI:001676 with dandi CLI:
-    #        dandi download "https://dandiarchive.org/dandiset/001676/0.251205.2137/assets/<asset-id>/download/"
-    #   2. Run append:
-    #        session_to_nwb(
-    #            session_dir_path=_session,
-    #            output_dir_path=_out,  # ignored in append mode
-    #            append_to_nwb_path="/path/to/downloaded/sub-A0662_ses-20220728.nwb",
-    #            verbose=True,
-    #        )
-    #   3. Re-upload with dandi CLI:
-    #        dandi upload /path/to/modified.nwb --dandiset 001676
-    pass
