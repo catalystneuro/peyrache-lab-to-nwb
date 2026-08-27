@@ -1,0 +1,83 @@
+NWBFile:
+  keywords:
+    - head direction
+    - calcium imaging
+    - miniscope
+    - longitudinal recording
+    - freely moving
+    - mouse
+    - navigation
+    - PostSubiculum
+  related_publications:
+    - doi:10.1101/2024.06.13.598909
+  session_description: >
+    Raw one-photon calcium imaging (UCLA Miniscope V4) from the PostSubiculum of a
+    freely moving mouse during a longitudinal head-direction cell recording.
+    This NWB file contains raw acquisition data; corresponding processed data (DF/F,
+    ROI footprints, CellReg registration) are available in DANDI:001676.
+  experiment_description: >
+    Longitudinal recording of GCaMP6f-expressing cells in the PostSubiculum of
+    freely-moving C57BL/6J mice using a UCLA Miniscope V4 one-photon fluorescence
+    microscope. Mice explored different environments over several months to characterise
+    the long-term stability of head-direction cell representations. Behavioural position
+    and head orientation were tracked simultaneously by an OptiTrack 3-D motion-capture
+    system. An Intan RHD system recorded hardware synchronisation signals (TTL pulses)
+    linking the three acquisition systems to a common clock.
+  institution: McGill University
+  lab: Peyrache Lab
+  experimenter:
+    - Skromne Carrasco, Sofia
+    - Viejo, Guillaume
+    - Peyrache, Adrien
+
+Subject:
+  species: Mus musculus
+  genotype: C57BL/6J
+  sex: M
+  description: >
+    Adult male C57BL/6J mouse implanted with a UCLA Miniscope V4 head-mounted
+    fluorescence microscope for longitudinal calcium imaging of PostSubiculum
+    head-direction cells.
+  # age is session-specific (P243D for A0642); set per-session in convert_session.py
+  # from per-subject metadata once confirmed with the lab (open question Q7).
+
+TimeSeries:
+  TimeSeriesIntanSync:
+    name: TimeSeriesIntanSync
+    description: >
+      Intan RHD ADC input channels used for hardware synchronisation.
+      Channel 0 (ADC-00): OptiTrack sync — 120 Hz TTL pulses (0.5 ms width),
+      one rising edge per OptiTrack frame.
+      Channel 1 (ADC-01): Miniscope frame gate — square wave where each
+      half-period (≈ 40.6 ms) spans one Miniscope frame; rising edge = even
+      frame (0, 2, 4, …), falling edge = odd frame (1, 3, 5, …). Both edges
+      are decoded to produce the per-frame hardware timestamps stored in
+      OnePhotonSeries.
+
+Ophys:
+  Device:
+    - name: 1p Miniscope
+      description: UCLA Miniscope V4
+      manufacturer: UCLA / Open Ephys
+  ImagingPlane:
+    - name: ImagingPlane
+      description: Longitudinal recording of cells in the PostSubiculum
+      excitation_lambda: 470.0      # nm — 470 nm blue LED (GCaMP6f excitation)
+      location: PostSubiculum
+      indicator: GCaMP6f
+      grid_spacing: [0.0033, 0.0033]   # mm/pixel ≈ 3.3 µm/pixel (UCLA Miniscope V4)
+      grid_spacing_unit: millimeters
+      origin_coords: [-2.35, 0.32, -1.3]   # AP, ML, DV mm from bregma
+      origin_coords_unit: millimeters
+      optical_channel:
+        - name: GreenChannel
+          description: Green emission channel for GCaMP6f fluorescence detection
+          emission_lambda: 525.0    # nm — green emission filter centre
+      device: 1p Miniscope
+  OnePhotonSeries:
+    - name: OnePhotonSeries
+      description: >
+        Raw calcium imaging video from a UCLA Miniscope V4 one-photon fluorescence
+        microscope. Data are acquired as MJPEG-compressed AVI chunks (2 000 frames each).
+        Timestamps are derived from the Intan hardware sync channel (ADC-01, Miniscope
+        frame-gate square wave).

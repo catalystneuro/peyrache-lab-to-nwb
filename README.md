@@ -53,13 +53,13 @@ uv pip install -e .
 ### Single session — new NWB file
 
 ```python
-from peyrache_lab_to_nwb.miniscope_arc.miniscope_arc_convert_session import session_to_nwb
+from peyrache_lab_to_nwb.miniscope_arc.convert_session import session_to_nwb
 from pathlib import Path
 
 session_to_nwb(
     session_dir_path=Path("~/source_data/peyrache-lab/A0662/2022_07_28"),
     output_dir_path=Path("~/nwb_output/peyrache"),
-    stub_test=True,   # set False for full conversion
+    stub_test=True,  # set False for full conversion
     verbose=True,
 )
 ```
@@ -85,7 +85,7 @@ session_to_nwb(
 ### All sessions
 
 ```python
-from peyrache_lab_to_nwb.miniscope_arc.miniscope_arc_convert_all_sessions import dataset_to_nwb
+from peyrache_lab_to_nwb.miniscope_arc.convert_all_sessions import dataset_to_nwb
 
 dataset_to_nwb(
     data_dir_path=Path("~/source_data/peyrache-lab"),

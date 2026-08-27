@@ -23,6 +23,7 @@ dependencies = [
     "numpy",
     "tqdm",
     "hdmf",
+    "ipykernel>=7.3.0",
 ]
 
 [project.urls]
