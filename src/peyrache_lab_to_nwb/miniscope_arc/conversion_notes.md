@@ -9,7 +9,7 @@
 **Drive folder**: https://drive.google.com/drive/u/0/folders/1PEYVAdDfKJ4QaOsY7ivQCGnPNKsSTNTs  
 **Date started**: 2026-08-04
 
-**Related publication**: Skromne Carrasco, S., Viejo, G. & Peyrache, A. Months-long stability of the head-direction system. *Nature* 652, 167–173 (2026). doi:10.1038/s41586-026-XXXX  
+**Related publication**: Skromne Carrasco, S., Viejo, G. & Peyrache, A. Months-long stability of the head-direction system. *Nature* 652, 167–173 (2026). doi:10.1038/s41586-025-10096-w  
 **Existing processed data**: DANDI:001676 (includes DF/F traces, ROI footprints, CellReg registration, behavioral tracking, sync signals, session metadata)
 
 ---
@@ -38,7 +38,8 @@ Longitudinal recording of GCaMP6f-expressing cells in the **PostSubiculum** of f
     │   ├── 0.avi, 1.avi, ... N.avi   # MJPEG video chunks, 2000 frames each
     │   ├── metaData.json              # Device config (frameRate, gain, LED, etc.)
     │   └── timeStamps.csv             # Per-frame timestamps (ms from DAQ start)
-    ├── Intan/
+    ├── {subject}_{YYMMDD}_{HHMMSS}/   # named "Intan/" in the July sessions; when the
+    │   │                              # name is timestamped it gives the recording start
     │   ├── info.rhd                   # Intan header (recording params, channel defs)
     │   ├── time.dat                   # Sample timestamps (int32, 20 kHz)
     │   └── analogin.dat               # Analog input data (uint16, 2 channels, 20 kHz)
@@ -222,7 +223,8 @@ Overlap (all three systems active and synced): **3.46 – 1201.85 s (1198.4 s = 
 
 - `OnePhotonSeries.timestamps` = `miniscope_timestamps_intan` (Intan clock, seconds)
 - `SpatialSeries.timestamps` (position) = `tracking_timestamps_intan` (Intan clock, seconds)
-- `NWBFile.session_start_time` = Intan recording start (wall-clock time — need from lab)
+- `NWBFile.session_start_time` = Intan recording start, read from the Intan directory name
+  `{subject}_{YYMMDD}_{HHMMSS}` (the RHD header has no date field) — confirmed by the lab 2026-09-08
 - Do NOT use `OnePhotonSeries.rate` — use `timestamps` to capture real frame-rate variability
 
 ### Open sync questions
@@ -275,6 +277,62 @@ Storing the raw waveforms means any future user can independently verify or re-d
 - [ ] **Q6**: Are there additional sessions/subjects not yet uploaded to Google Drive?
 - [x] **Q7** *(resolved 2026-08-12 from DANDI NWB stream)*: species=Mus musculus, genotype=C57BL/6J, sex=M, indicator=GCaMP6f. Per-subject date-of-birth / weight still needed from lab.
 - [ ] **Q8**: Session timezone — what timezone were recordings made in? (likely America/Toronto for McGill)
+
+---
+
+## Ophys Metadata Sourced from the Paper
+
+Checked against Skromne Carrasco, Viejo & Peyrache, *Nature* 652, 167-173 (2026),
+doi:10.1038/s41586-025-10096-w (Methods), 2026-09-10:
+
+| Field | Value | Methods section |
+|-------|-------|-----------------|
+| `ImagingPlane.location` | `Postsubiculum` (Allen CCF term; was `PostSubiculum`, which fails the NWB Inspector CCF check) | "Stereotaxic GRIN lens implantation" |
+| `ImagingPlane.origin_coords` | `[0.32, -2.35, -1.3]` mm in (AP, ML, DV) order | "Stereotaxic GRIN lens implantation" |
+| `ImagingPlane.reference_frame` | AP +0.32 mm from lambda, ML -2.35 mm from midline (left), DV -1.3 mm from skull surface | "Stereotaxic GRIN lens implantation" |
+| `ImagingPlane.description` | 1.0 mm GRIN lens (Inscopix); AAV2/9-SYN-GCaMP6f (Neurophotonics, batch 1357), 100-120 nl at 50 nl/min | "Viral vectors", "Stereotaxic injections" |
+| `NWBFile.related_publications` | `doi:10.1038/s41586-025-10096-w` (replaced the bioRxiv preprint DOI) | — |
+
+**`origin_coords` order — resolved 2026-09-10, deliberately diverges from DANDI:001676.**
+This file stores `[0.32, -2.35, -1.3]` in **(AP, ML, DV)** order. The published DANDI:001676
+file appears to store ML first (`[-2.35, 0.32, -1.3]`), which is where the earlier value here
+came from.
+
+The NWB `ImagingPlane` spec (`nwb.ophys.yaml`) declares `origin_coords` dims as `x, y, z` and
+mandates no anatomical order; `reference_frame` is the field that "is necessary to interpret
+origin_coords", and the spec's own worked example uses AP, then ML, then DV. So (AP, ML, DV)
+plus an explicit `reference_frame` is the documented convention, and it is also the order the
+paper states. An ML-first array with no `reference_frame` is not interpretable at all, so it was
+not treated as the value to match.
+
+If the processed DANDI files are ever re-converted, they should be corrected the same way
+rather than this file being changed back.
+
+**Still to confirm with the lab:** `Subject.genotype` is set to `C57BL/6J`, which is a strain
+rather than a genotype. The paper describes wild-type C57BL/6J mice injected with AAV, so
+this most likely belongs in `Subject.strain` with `genotype` left unset.
+
+---
+
+## Ophys Metadata Format
+
+`metadata.yaml` uses NeuroConv's dict-based metadata format (neuroconv >= 0.10), which keys
+each entry by name instead of by list position:
+
+- `Devices["miniscope"]` — the instrument, named from the Miniscope DAQ `metaData.json`
+  (`deviceName`). Its per-session configuration (frame rate, gain, LED power, EWL) is written
+  by `MiniscopeImagingInterface` from the same file; only the link to the model is set by hand.
+- `DeviceModels["miniscope_v4"]` — the hardware design (`deviceType: Miniscope_V4`), carrying
+  the manufacturer, model number and description. pynwb 4 deprecated `Device.manufacturer`,
+  `Device.model_name` and `Device.model_number` in favor of this linked `DeviceModel`, so the
+  make of the scope belongs here, shared by every session recorded on it.
+- `Ophys["ImagingPlanes"]["miniscope_imaging"]` / `Ophys["MicroscopySeries"]["miniscope_imaging"]`
+  — keyed by the interface's `metadata_key`; the plane points at the device with
+  `device_metadata_key`, the series at the plane with `imaging_plane_metadata_key`.
+
+The old list-based format (`Ophys["Device"]`, `Ophys["ImagingPlane"]`, `Ophys["OnePhotonSeries"]`)
+is deprecated and, under neuroconv 0.10, silently loses the hand-written imaging-plane fields
+(the file gets a `PlaceholderMicroscope` with `excitation_lambda: nan`), so it must not be used.
 
 ---
 

@@ -6,7 +6,7 @@ NWB conversion scripts for the [Peyrache Lab](https://www.peyrachelab.com/)
 
 Related publication: Skromne Carrasco, S., Viejo, G. & Peyrache, A.
 *Months-long stability of the head-direction system.*
-doi: [10.1101/2024.06.13.598909](https://doi.org/10.1101/2024.06.13.598909)
+doi: [10.1038/s41586-025-10096-w](https://doi.org/10.1038/s41586-025-10096-w)
 
 Processed dataset: [DANDI:001676](https://dandiarchive.org/dandiset/001676/0.251205.2137)
 
