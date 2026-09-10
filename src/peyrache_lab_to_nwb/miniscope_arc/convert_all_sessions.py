@@ -10,7 +10,7 @@ import traceback
 
 from tqdm import tqdm
 
-from .convert_session import session_to_nwb
+from .convert_session import _find_intan_dir, session_to_nwb
 
 
 def dataset_to_nwb(
@@ -29,8 +29,8 @@ def dataset_to_nwb(
         └── {subject_id}/
             └── {YYYY_MM_DD}/    ← session directory
 
-    A directory is treated as a session if it contains a ``Miniscope`` or
-    ``Intan`` sub-directory.
+    A directory is treated as a session if it contains a ``Miniscope``
+    sub-directory or an Intan recording directory.
 
     Parameters
     ----------
@@ -102,8 +102,9 @@ def get_session_to_nwb_kwargs_per_session(
 
         {data_dir_path}/{subject_id}/{YYYY_MM_DD}/
 
-    A directory is recognised as a session if it contains ``Miniscope/`` or
-    ``Intan/``.
+    A directory is recognised as a session if it contains ``Miniscope/`` or an
+    Intan recording directory (``Intan/`` in the July sessions,
+    ``{subject}_{YYMMDD}_{HHMMSS}`` afterwards).
 
     Returns
     -------
@@ -128,7 +129,7 @@ def get_session_to_nwb_kwargs_per_session(
 
 def _is_session_dir(path: Path) -> bool:
     """Return True if ``path`` looks like a session directory."""
-    return (path / "Miniscope").is_dir() or (path / "Intan").is_dir()
+    return (path / "Miniscope").is_dir() or _find_intan_dir(path) is not None
 
 
 if __name__ == "__main__":
