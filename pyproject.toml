@@ -15,7 +15,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "neuroconv",
+    "neuroconv>=0.10.0",
     "nwbinspector",
     "ndx-miniscope",
     "roiextractors",
