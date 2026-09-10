@@ -15,7 +15,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "neuroconv",
+    "neuroconv>=0.10.0",
     "nwbinspector",
     "ndx-miniscope",
     "roiextractors",
@@ -23,6 +23,7 @@ dependencies = [
     "numpy",
     "tqdm",
     "hdmf",
+    "ipykernel>=7.3.0",
 ]
 
 [project.urls]

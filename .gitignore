@@ -15,3 +15,6 @@ nwb_stub/
 
 # Virtual environment
 .venv/
+
+# Local debugging notebooks (not part of the codebase)
+notebooks/

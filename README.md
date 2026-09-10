@@ -6,7 +6,7 @@ NWB conversion scripts for the [Peyrache Lab](https://www.peyrachelab.com/)
 
 Related publication: Skromne Carrasco, S., Viejo, G. & Peyrache, A.
 *Months-long stability of the head-direction system.*
-doi: [10.1101/2024.06.13.598909](https://doi.org/10.1101/2024.06.13.598909)
+doi: [10.1038/s41586-025-10096-w](https://doi.org/10.1038/s41586-025-10096-w)
 
 Processed dataset: [DANDI:001676](https://dandiarchive.org/dandiset/001676/0.251205.2137)
 
@@ -53,13 +53,13 @@ uv pip install -e .
 ### Single session — new NWB file
 
 ```python
-from peyrache_lab_to_nwb.miniscope_arc.miniscope_arc_convert_session import session_to_nwb
+from peyrache_lab_to_nwb.miniscope_arc.convert_session import session_to_nwb
 from pathlib import Path
 
 session_to_nwb(
     session_dir_path=Path("~/source_data/peyrache-lab/A0662/2022_07_28"),
     output_dir_path=Path("~/nwb_output/peyrache"),
-    stub_test=True,   # set False for full conversion
+    stub_test=True,  # set False for full conversion
     verbose=True,
 )
 ```
@@ -85,7 +85,7 @@ session_to_nwb(
 ### All sessions
 
 ```python
-from peyrache_lab_to_nwb.miniscope_arc.miniscope_arc_convert_all_sessions import dataset_to_nwb
+from peyrache_lab_to_nwb.miniscope_arc.convert_all_sessions import dataset_to_nwb
 
 dataset_to_nwb(
     data_dir_path=Path("~/source_data/peyrache-lab"),
