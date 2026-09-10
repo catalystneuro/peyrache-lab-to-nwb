@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from neuroconv.utils import dict_deep_update, load_dict_from_file
 
@@ -14,6 +16,39 @@ from peyrache_lab_to_nwb.miniscope_arc.nwbconverter import MiniscopeArcNWBConver
 # TODO (open question Q3): confirm the session-ID convention against DANDI:001676
 # before the first upload.  Current convention: "{subject_id}_{YYYY-MM-DD}"
 # e.g. "A0662_2022-07-28".
+
+# Intan writes its recording directory as "{subject}_{YYMMDD}_{HHMMSS}".
+_INTAN_DIR_TIMESTAMP = re.compile(r"_(\d{6})_(\d{6})$")
+
+
+def _find_intan_dir(session_dir_path: Path) -> Optional[Path]:
+    """Locate the Intan "one file per signal type" directory in a session.
+
+    The directory is called ``Intan`` in the earliest sessions and
+    ``{subject}_{YYMMDD}_{HHMMSS}`` (the Intan software default) in later
+    ones, so it is found by content — an ``info.rhd`` next to ``time.dat``
+    and ``analogin.dat`` — rather than by name.  When several candidates
+    match (e.g. a convenience ``Intan`` symlink beside the real directory)
+    the timestamped name wins, because its name carries the recording start
+    time.  Returns ``None`` when no candidate directory exists.
+    """
+    candidates = []
+    for info_rhd in sorted(session_dir_path.glob("*/info.rhd")):
+        directory = info_rhd.parent
+        if (directory / "time.dat").is_file() and (directory / "analogin.dat").is_file():
+            candidates.append(directory)
+
+    # Deduplicate symlink/real-path pairs, keeping the timestamped name.
+    by_target: dict[Path, Path] = {}
+    for directory in candidates:
+        target = directory.resolve()
+        current = by_target.get(target)
+        if current is None or _INTAN_DIR_TIMESTAMP.search(directory.name):
+            by_target[target] = directory
+
+    if not by_target:
+        return None
+    return sorted(by_target.values(), key=lambda p: (_INTAN_DIR_TIMESTAMP.search(p.name) is None, p.name))[0]
 
 
 def _intan_adc_is_valid(intan_dir: Path) -> bool:
@@ -25,6 +60,49 @@ def _intan_adc_is_valid(intan_dir: Path) -> bool:
         and (intan_dir / "time.dat").stat().st_size > 0
         and (intan_dir / "analogin.dat").stat().st_size > 0
     )
+
+
+def _intan_start_time_from_header(recording) -> Optional[datetime]:
+    """Return the Intan acquisition start time if the RHD header carries one.
+
+    The RHD headers in this dataset are format v1.5 and hold no date/time
+    field (the three free-text note fields are empty), and neo does not
+    surface one either — so in practice this returns ``None``.  It is still
+    tried first, per the lab's instruction to prefer the header, in case a
+    different RHD version or a future reader exposes it.
+    """
+    if recording is None:
+        return None
+    for key in ("datetime", "date_time", "recording_start_time", "acquisition_datetime"):
+        value = recording.get_annotation(key)
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                continue
+    return None
+
+
+def _intan_start_time_from_dir_name(intan_dir: Path) -> Optional[datetime]:
+    """Parse the Intan recording start time out of ``{subject}_{YYMMDD}_{HHMMSS}``."""
+    match = _INTAN_DIR_TIMESTAMP.search(intan_dir.name)
+    if match is None:
+        return None
+    date_part, time_part = match.groups()
+    try:
+        naive = datetime.strptime(f"{date_part}_{time_part}", "%y%m%d_%H%M%S")
+    except ValueError:
+        return None
+    return naive.replace(tzinfo=SESSION_TZ)
+
+
+def _intan_session_start_time(intan_dir: Optional[Path], recording=None) -> Optional[datetime]:
+    """Intan recording start time — from the RHD header, else the directory name."""
+    if intan_dir is None:
+        return None
+    return _intan_start_time_from_header(recording) or _intan_start_time_from_dir_name(intan_dir)
 
 
 def session_to_nwb(
@@ -43,7 +121,7 @@ def session_to_nwb(
         │   ├── 0.avi, 1.avi, …   # MJPEG video chunks (2 000 frames each)
         │   ├── metaData.json
         │   └── timeStamps.csv
-        └── Intan/
+        └── {subject}_{YYMMDD}_{HHMMSS}/   # called "Intan/" in the earliest sessions
             ├── info.rhd
             ├── time.dat           # int32 sample indices at 20 kHz
             └── analogin.dat       # uint16 ADC data (2 channels × N samples)
@@ -51,6 +129,17 @@ def session_to_nwb(
     The subject ID and session date are inferred from the directory structure::
 
         …/{subject_id}/{YYYY_MM_DD}/   →  subject_id="A0662", date="2022_07_28"
+
+    Timestamps and time origin
+    --------------------------
+    Every timestamp written here lives on the **Intan clock**: ``t = 0`` is the
+    first Intan sample, Miniscope frame times are decoded from the ADC-01 frame
+    gate, and the raw ADC traces are stored as acquired.  ``session_start_time``
+    is therefore the Intan recording start (see ``_intan_session_start_time``),
+    not the Miniscope DAQ wall clock.  No frames are dropped to match the
+    cropping applied to the published processed data — the raw file keeps every
+    acquired frame, and hardware timestamps are what line it up with the
+    processed files.
 
     Parameters
     ----------
@@ -82,7 +171,7 @@ def session_to_nwb(
         print(f"[new file] → {nwbfile_path}")
 
     # ------------------------------------------------------------------ #
-    # Build source_data                                                   #
+    # Build source_data                                                  #
     # ------------------------------------------------------------------ #
     source_data: dict = {}
     conversion_options: dict = {}
@@ -95,51 +184,48 @@ def session_to_nwb(
         print(f"Warning: no Miniscope directory found in {session_dir_path}")
 
     # Intan ADC channels — both stored together as TimeSeriesIntanSync in acquisition
-    # and used for hardware-sync timestamp derivation.  Skipped when files are absent
-    # or empty (e.g. session 2022_07_25); Miniscope then falls back to USB timestamps.
-    intan_dir = session_dir_path / "Intan"
-    if intan_dir.is_dir() and _intan_adc_is_valid(intan_dir):
+    # (full length, never truncated) and used for hardware-sync timestamp derivation.
+    # Skipped when files are absent or empty (e.g. session 2022_07_25); Miniscope then
+    # falls back to USB timestamps.
+    intan_dir = _find_intan_dir(session_dir_path)
+    if intan_dir is not None and _intan_adc_is_valid(intan_dir):
         source_data["IntanSync"] = dict(
             file_path=str(intan_dir / "info.rhd"),
             stream_name=INTAN_ADC_STREAM,
             metadata_key="TimeSeriesIntanSync",
         )
     elif verbose:
-        print(f"Warning: Intan ADC data absent or empty in {intan_dir} — falling back to USB timestamps.")
+        location = intan_dir if intan_dir is not None else session_dir_path
+        print(f"Warning: Intan ADC data absent or empty in {location} — falling back to USB timestamps.")
 
     # ------------------------------------------------------------------ #
-    # Instantiate converter                                               #
+    # Instantiate converter                                              #
     # ------------------------------------------------------------------ #
     converter = MiniscopeArcNWBConverter(source_data=source_data, verbose=verbose)
 
     # ------------------------------------------------------------------ #
-    # Build metadata                                                      #
+    # Build metadata                                                     #
     # ------------------------------------------------------------------ #
     metadata = converter.get_metadata()
 
-    # Layer 1: ensure session_start_time has timezone.
-    # MiniscopeImagingInterface reads it from a session-level metaData.json that
-    # the Peyrache lab data does not include, so fall back to midnight on the
-    # recording date (YYYY_MM_DD directory name) in Eastern Time.
-    start_time = metadata["NWBFile"].get("session_start_time")
+    # All timestamps in this file are on the Intan clock (t = 0 is the first Intan sample)
+    intan_interface = converter.data_interface_objects.get("IntanSync")
+    recording = intan_interface.recording_extractor if intan_interface is not None else None
+    start_time = _intan_session_start_time(intan_dir, recording=recording)
     if start_time is None:
-        y, m, d = session_date.split("_")
-        start_time = datetime(int(y), int(m), int(d), tzinfo=SESSION_TZ)
-    elif start_time.tzinfo is None:
-        start_time = start_time.replace(tzinfo=SESSION_TZ)
+        raise ValueError(f"Cannot determine Intan session start time for {session_dir_path}. "
+                         f"The session directory is expected to follow 'subject_YYMMDD_HHMMSS' or contain an Intan info.rhd header with a start time.")
+
     metadata["NWBFile"]["session_start_time"] = start_time
 
-    # Layer 2: merge hand-edited lab-level metadata from YAML
     metadata_yaml_path = Path(__file__).parent / "metadata.yaml"
     editable_metadata = load_dict_from_file(metadata_yaml_path)
     metadata = dict_deep_update(metadata, editable_metadata, remove_repeats=False)
 
-    # Layer 3: session-specific overrides
     metadata["NWBFile"]["session_id"] = session_id
-
     # dict_deep_update deduplicates identical floats in lists, collapsing
     # [0.0033, 0.0033] → [0.0033] (shape (1,) instead of the required (2,)).
-    metadata["Ophys"]["ImagingPlane"][0]["grid_spacing"] = [0.0033, 0.0033]
+    metadata["Ophys"]["ImagingPlanes"]["miniscope_imaging"]["grid_spacing"] = [0.0033, 0.0033]
 
     # Subject — subject_id is required by DANDI; other fields come from the YAML
     # TODO (open question Q7): fill in per-subject sex, date_of_birth, weight from lab records
@@ -160,7 +246,7 @@ def session_to_nwb(
 
 
 if __name__ == "__main__":
-    miniscope_folder_path = Path("/Users/weian/source_data/peyrache-lab-local/A0662/2022_07_28")
+    miniscope_folder_path = Path("/Users/weian/source_data/peyrache-lab-local/A0662/2022_08_29")
     nwb_folder_path = Path("/Users/weian/nwb_output/peyrache")
 
     session_to_nwb(
