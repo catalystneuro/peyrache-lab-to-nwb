@@ -54,7 +54,7 @@ TimeSeries:
 # Ophys metadata
 # The metadata for the device used for optical imaging.
 DeviceModels:
-  miniscope_model:
+  miniscope_v4:
     name: Miniscope_V4
     manufacturer: UCLA / Open Ephys
     model_number: V4
@@ -64,7 +64,10 @@ DeviceModels:
 Devices:
   miniscope:
     name: Miniscope
-    device_model_metadata_key: miniscope_model
+    device_model_metadata_key: miniscope_v4
+    description: >
+      Head-mounted one-photon microscope used for longitudinal calcium imaging of
+      Postsubiculum head-direction cells in freely moving mice.
 
 # The metadata that corresponds to where and how the imaging was done.
 Ophys:
