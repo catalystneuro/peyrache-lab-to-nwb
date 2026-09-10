@@ -12,19 +12,6 @@ from neuroconv.datainterfaces import IntanAnalogInterface, MiniscopeImagingInter
 
 from peyrache_lab_to_nwb.miniscope_arc.constants import ADC_THRESH_V, CH_MINISCOPE
 
-# neuroconv 0.9.3 calls get_channel_names() on all ImagingExtractors, but
-# roiextractors 0.9.x has not yet added it to MiniscopeImagingExtractor.
-# Patch it here so the single-channel (green) Miniscope extractor works.
-try:
-    from roiextractors.extractors.miniscopeimagingextractor.miniscopeimagingextractor import (
-        MiniscopeImagingExtractor,
-    )
-
-    if not hasattr(MiniscopeImagingExtractor, "get_channel_names"):
-        MiniscopeImagingExtractor.get_channel_names = lambda self: ["GreenChannel"]
-except ImportError:
-    pass
-
 
 class MiniscopeArcNWBConverter(NWBConverter):
     """Primary conversion class for Peyrache Lab miniscope_arc data.
