@@ -9,9 +9,9 @@ NWBFile:
     - navigation
     - PostSubiculum
   related_publications:
-    - doi:10.1101/2024.06.13.598909
+    - doi:10.1038/s41586-025-10096-w # Updated DOI from `doi:10.1101/2024.06.13.598909` to point to the published version.
   session_description: >
-    Raw one-photon calcium imaging (UCLA Miniscope V4) from the PostSubiculum of a
+    Raw one-photon calcium imaging (UCLA Miniscope V4) from the Postsubiculum of a
     freely moving mouse during a longitudinal head-direction cell recording.
     This NWB file contains raw acquisition data; corresponding processed data (DF/F,
     ROI footprints, CellReg registration) are available in DANDI:001676.
@@ -36,7 +36,7 @@ Subject:
   sex: M
   description: >
     Adult male C57BL/6J mouse implanted with a UCLA Miniscope V4 head-mounted
-    fluorescence microscope for longitudinal calcium imaging of PostSubiculum
+    fluorescence microscope for longitudinal calcium imaging of Postsubiculum
     head-direction cells.
   # age is session-specific (P243D for A0642); set per-session in convert_session.py
   # from per-subject metadata once confirmed with the lab (open question Q7).
@@ -46,38 +46,53 @@ TimeSeries:
     name: TimeSeriesIntanSync
     description: >
       Intan RHD ADC input channels used for hardware synchronisation.
-      Channel 0 (ADC-00): OptiTrack sync — 120 Hz TTL pulses (0.5 ms width),
-      one rising edge per OptiTrack frame.
+      Channel 0 (ADC-00): OptiTrack sync (one rising edge per OptiTrack frame).
       Channel 1 (ADC-01): Miniscope frame gate — square wave where each
       half-period (≈ 40.6 ms) spans one Miniscope frame; rising edge = even
-      frame (0, 2, 4, …), falling edge = odd frame (1, 3, 5, …). Both edges
-      are decoded to produce the per-frame hardware timestamps stored in
-      OnePhotonSeries.
+      frame, falling edge = odd frame.
 
+# Ophys metadata
+# The metadata for the device used for optical imaging.
+DeviceModels:
+  miniscope_model:
+    name: Miniscope_V4
+    manufacturer: UCLA / Open Ephys
+    model_number: V4
+    description: >
+      UCLA Miniscope V4 head-mounted one-photon microscope.
+
+Devices:
+  miniscope:
+    name: Miniscope
+    device_model_metadata_key: miniscope_model
+
+# The metadata that corresponds to where and how the imaging was done.
 Ophys:
-  Device:
-    - name: 1p Miniscope
-      description: UCLA Miniscope V4
-      manufacturer: UCLA / Open Ephys
-  ImagingPlane:
-    - name: ImagingPlane
-      description: Longitudinal recording of cells in the PostSubiculum
-      excitation_lambda: 470.0      # nm — 470 nm blue LED (GCaMP6f excitation)
-      location: PostSubiculum
+  ImagingPlanes:
+    miniscope_imaging:
+      name: ImagingPlane
+      description: >
+        Longitudinal recording of GCaMP6f-expressing cells in the Postsubiculum of the
+        left hemisphere, imaged through a 1.0 mm diameter GRIN lens (Inscopix) over the Postsubiculum.
+      device_metadata_key: miniscope
+      excitation_lambda: 470.0           # nm — 470 nm blue LED (GCaMP6f excitation)
+      location: Postsubiculum            # Allen Mouse Brain CCF term
       indicator: GCaMP6f
-      grid_spacing: [0.0033, 0.0033]   # mm/pixel ≈ 3.3 µm/pixel (UCLA Miniscope V4)
+      grid_spacing: [0.0033, 0.0033]     # mm/pixel ≈ 3.3 µm/pixel (UCLA Miniscope V4)
       grid_spacing_unit: millimeters
-      origin_coords: [-2.35, 0.32, -1.3]   # AP, ML, DV mm from bregma
+      origin_coords: [0.32, -2.35, -1.3] # AP, ML, DV mm
       origin_coords_unit: millimeters
+      # Lens implantation coordinates were as follows: PoSub – AP (from Lambda) + 0.32 mm, ML −2.35 mm,DV (from skull) −1.3 mm.
+      reference_frame: >
+        Stereotaxic coordinate system with Anteroposterior (AP) measured from Lambda, Mediolateral (ML) from midline, Dorsoventral (DV) from skull surface.
       optical_channel:
-        - name: GreenChannel
-          description: Green emission channel for GCaMP6f fluorescence detection
-          emission_lambda: 525.0    # nm — green emission filter centre
-      device: 1p Miniscope
-  OnePhotonSeries:
-    - name: OnePhotonSeries
+        - name: OpticalChannel
+          description: Green emission channel for GCaMP6f fluorescence detection.
+          emission_lambda: 525.0         # nm — green emission filter centre
+  MicroscopySeries:
+    miniscope_imaging:
+      name: OnePhotonSeries
       description: >
         Raw calcium imaging video from a UCLA Miniscope V4 one-photon fluorescence
-        microscope. Data are acquired as MJPEG-compressed AVI chunks (2 000 frames each).
-        Timestamps are derived from the Intan hardware sync channel (ADC-01, Miniscope
+        microscope. The timestamps are derived from the Intan hardware sync channel (ADC-01, Miniscope
         frame-gate square wave).
