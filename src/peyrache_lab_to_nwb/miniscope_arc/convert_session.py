@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 import re
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from neuroconv.utils import dict_deep_update, load_dict_from_file
 
-from peyrache_lab_to_nwb.miniscope_arc.constants import INTAN_ADC_STREAM, SESSION_TZ
-from peyrache_lab_to_nwb.miniscope_arc.nwbconverter import MiniscopeArcNWBConverter
+from peyrache_lab_to_nwb.miniscope_arc.constants import SESSION_TZ
+from peyrache_lab_to_nwb.miniscope_arc.nwbconverter import (
+    MINISCOPE_SYNC_DETECTION_CONFIGURATION,
+    MiniscopeArcNWBConverter,
+)
 
 # TODO (open question Q3): confirm the session-ID convention against DANDI:001676
 # before the first upload.  Current convention: "{subject_id}_{YYYY-MM-DD}"
 # e.g. "A0662_2022-07-28".
 
-# Intan writes its recording directory as "{subject}_{YYMMDD}_{HHMMSS}".
+# The lab names the Intan recording directory "{subject}_{YYMMDD}_{HHMMSS}".
 _INTAN_DIR_TIMESTAMP = re.compile(r"_(\d{6})_(\d{6})$")
 
 
@@ -25,7 +27,7 @@ def _find_intan_dir(session_dir_path: Path) -> Optional[Path]:
     """Locate the Intan "one file per signal type" directory in a session.
 
     The directory is called ``Intan`` in the earliest sessions and
-    ``{subject}_{YYMMDD}_{HHMMSS}`` (the Intan software default) in later
+    ``{subject}_{YYMMDD}_{HHMMSS}`` (the lab's naming convention) in later
     ones, so it is found by content — an ``info.rhd`` next to ``time.dat``
     and ``analogin.dat`` — rather than by name.  When several candidates
     match (e.g. a convenience ``Intan`` symlink beside the real directory)
@@ -62,29 +64,6 @@ def _intan_adc_is_valid(intan_dir: Path) -> bool:
     )
 
 
-def _intan_start_time_from_header(recording) -> Optional[datetime]:
-    """Return the Intan acquisition start time if the RHD header carries one.
-
-    The RHD headers in this dataset are format v1.5 and hold no date/time
-    field (the three free-text note fields are empty), and neo does not
-    surface one either — so in practice this returns ``None``.  It is still
-    tried first, per the lab's instruction to prefer the header, in case a
-    different RHD version or a future reader exposes it.
-    """
-    if recording is None:
-        return None
-    for key in ("datetime", "date_time", "recording_start_time", "acquisition_datetime"):
-        value = recording.get_annotation(key)
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value)
-            except ValueError:
-                continue
-    return None
-
-
 def _intan_start_time_from_dir_name(intan_dir: Path) -> Optional[datetime]:
     """Parse the Intan recording start time out of ``{subject}_{YYMMDD}_{HHMMSS}``."""
     match = _INTAN_DIR_TIMESTAMP.search(intan_dir.name)
@@ -96,13 +75,6 @@ def _intan_start_time_from_dir_name(intan_dir: Path) -> Optional[datetime]:
     except ValueError:
         return None
     return naive.replace(tzinfo=SESSION_TZ)
-
-
-def _intan_session_start_time(intan_dir: Optional[Path], recording=None) -> Optional[datetime]:
-    """Intan recording start time — from the RHD header, else the directory name."""
-    if intan_dir is None:
-        return None
-    return _intan_start_time_from_header(recording) or _intan_start_time_from_dir_name(intan_dir)
 
 
 def session_to_nwb(
@@ -135,7 +107,7 @@ def session_to_nwb(
     Every timestamp written here lives on the **Intan clock**: ``t = 0`` is the
     first Intan sample, Miniscope frame times are decoded from the ADC-01 frame
     gate, and the raw ADC traces are stored as acquired.  ``session_start_time``
-    is therefore the Intan recording start (see ``_intan_session_start_time``),
+    is therefore the Intan recording start, parsed from the Intan directory name,
     not the Miniscope DAQ wall clock.  No frames are dropped to match the
     cropping applied to the published processed data — the raw file keeps every
     acquired frame, and hardware timestamps are what line it up with the
@@ -183,17 +155,15 @@ def session_to_nwb(
     elif verbose:
         print(f"Warning: no Miniscope directory found in {session_dir_path}")
 
-    # Intan ADC channels — both stored together as TimeSeriesIntanSync in acquisition
-    # (full length, never truncated) and used for hardware-sync timestamp derivation.
-    # Skipped when files are absent or empty (e.g. session 2022_07_25); Miniscope then
-    # falls back to USB timestamps.
+    # Intan ADC channels — both stored together as TimeSeriesIntanSync in acquisition,
+    # plus the ADC-01 frame-gate transitions used for hardware-sync timestamps.
     intan_dir = _find_intan_dir(session_dir_path)
     if intan_dir is not None and _intan_adc_is_valid(intan_dir):
-        source_data["IntanSync"] = dict(
+        source_data["Intan"] = dict(
             file_path=str(intan_dir / "info.rhd"),
-            stream_name=INTAN_ADC_STREAM,
-            metadata_key="TimeSeriesIntanSync",
+            detection_configuration=MINISCOPE_SYNC_DETECTION_CONFIGURATION,
         )
+        conversion_options["Intan"] = dict(stub_test=stub_test)
     elif verbose:
         location = intan_dir if intan_dir is not None else session_dir_path
         print(f"Warning: Intan ADC data absent or empty in {location} — falling back to USB timestamps.")
@@ -209,12 +179,10 @@ def session_to_nwb(
     metadata = converter.get_metadata()
 
     # All timestamps in this file are on the Intan clock (t = 0 is the first Intan sample)
-    intan_interface = converter.data_interface_objects.get("IntanSync")
-    recording = intan_interface.recording_extractor if intan_interface is not None else None
-    start_time = _intan_session_start_time(intan_dir, recording=recording)
+    start_time = _intan_start_time_from_dir_name(intan_dir) if intan_dir is not None else None
     if start_time is None:
         raise ValueError(f"Cannot determine Intan session start time for {session_dir_path}. "
-                         f"The session directory is expected to follow 'subject_YYMMDD_HHMMSS' or contain an Intan info.rhd header with a start time.")
+                         f"The Intan directory is expected to be named 'subject_YYMMDD_HHMMSS'.")
 
     metadata["NWBFile"]["session_start_time"] = start_time
 
