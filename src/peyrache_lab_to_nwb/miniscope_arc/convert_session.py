@@ -163,7 +163,9 @@ def session_to_nwb(
             file_path=str(intan_dir / "info.rhd"),
             detection_configuration=MINISCOPE_SYNC_DETECTION_CONFIGURATION,
         )
-        conversion_options["Intan"] = dict(stub_test=stub_test)
+        # IntanConverter takes its options keyed by child interface. Only the ADC traces can be
+        # stubbed; the frame-gate events are always detected over the whole recording.
+        conversion_options["Intan"] = dict(AnalogADCInput=dict(stub_test=stub_test))
     elif verbose:
         location = intan_dir if intan_dir is not None else session_dir_path
         print(f"Warning: Intan ADC data absent or empty in {location} — falling back to USB timestamps.")
