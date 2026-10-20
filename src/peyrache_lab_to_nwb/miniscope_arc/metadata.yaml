@@ -42,7 +42,7 @@ Subject:
   # from per-subject metadata once confirmed with the lab (open question Q7).
 
 TimeSeries:
-  TimeSeriesIntanSync:
+  intan_adc_input:  # IntanConverter's key for the ADC input stream
     name: TimeSeriesIntanSync
     description: >
       Intan RHD ADC input channels used for hardware synchronisation.
@@ -50,6 +50,16 @@ TimeSeries:
       Channel 1 (ADC-01): Miniscope frame gate — square wave where each
       half-period (≈ 40.6 ms) spans one Miniscope frame; rising edge = even
       frame, falling edge = odd frame.
+
+Events:
+  intan_analog_events:
+    event_types:
+      miniscope_frame_gate:
+        event_name: miniscope_frame_gate
+        event_description: >
+          Transitions of the Miniscope frame gate on Intan ADC-01, thresholded
+          halfway between its low and high levels. Each rising or falling edge
+          marks the start of one Miniscope frame.
 
 # Ophys metadata
 # The metadata for the device used for optical imaging.
