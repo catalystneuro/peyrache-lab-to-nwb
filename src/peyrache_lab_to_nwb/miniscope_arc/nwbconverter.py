@@ -5,12 +5,26 @@ from __future__ import annotations
 import warnings
 from typing import Optional
 
-import numpy as np
-
 from neuroconv import NWBConverter
-from neuroconv.datainterfaces import IntanAnalogInterface, MiniscopeImagingInterface
+from neuroconv.converters import IntanConverter
+from neuroconv.datainterfaces import MiniscopeImagingInterface
 
-from peyrache_lab_to_nwb.miniscope_arc.constants import ADC_THRESH_V, CH_MINISCOPE
+from peyrache_lab_to_nwb.miniscope_arc.constants import CH_MINISCOPE
+
+MINISCOPE_SYNC_EVENT_NAME = "miniscope_frame_gate"
+
+# Detection configuration for ``IntanConverter``: every transition of
+# the ADC-01 frame gate marks the start of one Miniscope frame.  The gate is a
+# two-level TTL, so it is cut halfway between its minimum and maximum.
+MINISCOPE_SYNC_DETECTION_CONFIGURATION = {
+    CH_MINISCOPE: [
+        {
+            "signal_conditioning": {"binarize": "midpoint"},
+            "detection": "value_change",
+            "event_name": MINISCOPE_SYNC_EVENT_NAME,
+        },
+    ],
+}
 
 
 class MiniscopeArcNWBConverter(NWBConverter):
@@ -22,25 +36,26 @@ class MiniscopeArcNWBConverter(NWBConverter):
         Raw UCLA Miniscope V4 video (MJPEG .avi chunks) via the built-in
         ``MiniscopeImagingInterface``.  Produces a ``OnePhotonSeries`` in
         acquisition with hardware-synchronised per-frame timestamps.
-    IntanSync
-        Both Intan RHD ADC input channels stored as ``TimeSeriesIntanSync``
-        in acquisition.  Channel 0 (ADC-00) = OptiTrack sync; channel 1
-        (ADC-01) = Miniscope frame gate.  Also used to derive hardware
-        timestamps for ``OnePhotonSeries`` in
-        ``temporally_align_data_interfaces``.
+    Intan
+        NeuroConv's ``IntanConverter``, which discovers the streams in the RHD
+        header.  These recordings carry only the ADC input stream, giving two
+        children: ``AnalogADCInput`` stores both ADC channels as
+        ``TimeSeriesIntanSync`` in acquisition (ADC-00 = OptiTrack sync;
+        ADC-01 = Miniscope frame gate), and ``AnalogEvents`` detects the
+        ADC-01 transitions with ``MINISCOPE_SYNC_DETECTION_CONFIGURATION``.
 
     Synchronisation
     ---------------
-    ``temporally_align_data_interfaces`` decodes rising/falling edges on
-    ADC-01 and calls ``set_aligned_timestamps()`` on ``MiniscopeImaging``.
-    If ``IntanSync`` is absent from ``source_data`` (e.g. session 2022_07_25
-    where Intan data files are empty), the method is a no-op and the
-    Miniscope interface falls back to USB timestamps.
+    ``temporally_align_data_interfaces`` reads the ADC-01 transitions from
+    ``Intan``'s ``AnalogEvents`` and calls ``set_aligned_timestamps()`` on
+    ``MiniscopeImaging``.  If ``Intan`` is absent from ``source_data`` (e.g.
+    session 2022_07_25 where Intan data files are empty), the method is a
+    no-op and the Miniscope interface falls back to USB timestamps.
     """
 
     data_interface_classes = dict(
         MiniscopeImaging=MiniscopeImagingInterface,
-        IntanSync=IntanAnalogInterface,
+        Intan=IntanConverter,
     )
 
     def temporally_align_data_interfaces(
@@ -48,7 +63,7 @@ class MiniscopeArcNWBConverter(NWBConverter):
         metadata: Optional[dict] = None,
         conversion_options: Optional[dict] = None,
     ) -> None:
-        """Decode Intan ADC-01 hardware sync pulses and set aligned timestamps.
+        """Set Miniscope frame times from the Intan ADC-01 hardware sync pulses.
 
         ADC-01 carries the Miniscope frame gate (square wave).  One full
         HIGH→LOW cycle spans exactly 2 Miniscope frames:
@@ -56,44 +71,31 @@ class MiniscopeArcNWBConverter(NWBConverter):
         - Rising edge  → even frame (0, 2, 4, …)
         - Falling edge → odd  frame (1, 3, 5, …)
 
-        Pulse width ≈ 40.6 ms = one Miniscope frame period.  If ``IntanSync``
-        is absent, this is a no-op.
+        so every transition is one frame.  Pulse width ≈ 40.6 ms = one
+        Miniscope frame period.  If ``Intan`` or ``MiniscopeImaging`` is
+        absent, this is a no-op.
         """
-        if "IntanSync" not in self.data_interface_objects:
+        if "Intan" not in self.data_interface_objects:
+            return
+        if "MiniscopeImaging" not in self.data_interface_objects:
             return
 
-        recording = self.data_interface_objects["IntanSync"].recording_extractor
-        n_samples = recording.get_num_samples()
-        if n_samples == 0:
-            return
+        intan_events = self.data_interface_objects["Intan"].data_interface_objects["AnalogEvents"]
+        ms_timestamps = intan_events.get_event_times(MINISCOPE_SYNC_EVENT_NAME)
 
-        time_s = recording.get_times()                           # (n_samples,) seconds
-        adc_v = recording.get_traces(return_scaled=True) / 1e6  # μV → V
+        n_frames = self.data_interface_objects["MiniscopeImaging"].imaging_extractor.get_num_samples()
+        n_detected = len(ms_timestamps)
 
-        if "MiniscopeImaging" in self.data_interface_objects:
-            ch_above = (adc_v[:, CH_MINISCOPE] > ADC_THRESH_V).astype(np.int8)
-            ch_diff = np.diff(ch_above)
-            rising  = np.where(ch_diff == 1)[0]
-            falling = np.where(ch_diff == -1)[0]
-            n = min(len(rising), len(falling))
+        if n_detected < n_frames:
+            warnings.warn(
+                f"Miniscope sync: only {n_detected} hardware timestamps detected "
+                f"for {n_frames} video frames — {n_frames - n_detected} frames will "
+                f"lack hardware timestamps. Check the Intan ADC-01 signal.",
+                UserWarning,
+                stacklevel=2,
+            )
 
-            ms_timestamps = np.empty(2 * n, dtype=np.float64)
-            ms_timestamps[0::2] = time_s[rising[:n]]   # even frames
-            ms_timestamps[1::2] = time_s[falling[:n]]  # odd frames
+        # Trim the (typically small) tail where Intan runs past the last frame
+        ms_timestamps = ms_timestamps[:n_frames]
 
-            n_frames = self.data_interface_objects["MiniscopeImaging"].imaging_extractor.get_num_samples()
-            n_detected = len(ms_timestamps)
-
-            if n_detected < n_frames:
-                warnings.warn(
-                    f"Miniscope sync: only {n_detected} hardware timestamps detected "
-                    f"for {n_frames} video frames — {n_frames - n_detected} frames will "
-                    f"lack hardware timestamps. Check the Intan ADC-01 signal.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-
-            # Trim the (typically small) tail where Intan runs past the last frame
-            ms_timestamps = ms_timestamps[:n_frames]
-
-            self.data_interface_objects["MiniscopeImaging"].set_aligned_timestamps(ms_timestamps)
+        self.data_interface_objects["MiniscopeImaging"].set_aligned_timestamps(ms_timestamps)
