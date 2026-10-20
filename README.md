@@ -25,13 +25,15 @@ data from the SFARI ARC longitudinal head-direction study.
 |--------|-----------|------------|
 | Miniscope raw video (MJPEG .avi) | `MiniscopeImagingInterface` | `OnePhotonSeries` in acquisition |
 | OptiTrack tracking (CSV) | `OptiTrackInterface` (custom) | `Position` + `body_rotation_euler_yxz` in behavior |
-| Intan sync channels (ADC) | *(decode-only, not stored)* | provides hardware timestamps |
+| Intan sync channels (ADC) | `IntanConverter` | `TimeSeriesIntanSync` in acquisition |
+| Miniscope frame gate (ADC-01) | `IntanConverter` (analog events) | `MiniscopeFrameGate` events table; provides hardware timestamps |
 
 **Synchronisation:** Intan RHD analog inputs carry two TTL signals that
 hardware-stamp every Miniscope frame and every OptiTrack frame.
-`MiniscopeArcNWBConverter.temporally_align_data_interfaces()` decodes these
-pulses and replaces the Miniscope USB timestamps (which drift up to 236 ms
-over a 20-minute session) with precise hardware timestamps.
+`MiniscopeArcNWBConverter.temporally_align_data_interfaces()` reads the
+frame-gate transitions detected by NeuroConv's `IntanConverter`
+and replaces the Miniscope USB timestamps (which drift up to 236 ms over a
+20-minute session) with precise hardware timestamps.
 
 ---
 
