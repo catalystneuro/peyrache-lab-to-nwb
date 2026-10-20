@@ -48,8 +48,8 @@ TimeSeries:
       Intan RHD ADC input channels used for hardware synchronisation.
       Channel 0 (ADC-00): OptiTrack sync (one rising edge per OptiTrack frame).
       Channel 1 (ADC-01): Miniscope frame gate — square wave where each
-      half-period (≈ 40.6 ms) spans one Miniscope frame; rising edge = even
-      frame, falling edge = odd frame.
+      half-period spans one Miniscope frame; rising edge = even frame,
+      falling edge = odd frame.
 
 Events:
   intan_analog_events:
