@@ -6,7 +6,7 @@ NWB conversion scripts for the [Peyrache Lab](https://www.peyrachelab.com/)
 
 Related publication: Skromne Carrasco, S., Viejo, G. & Peyrache, A.
 *Months-long stability of the head-direction system.*
-doi: [10.1101/2024.06.13.598909](https://doi.org/10.1101/2024.06.13.598909)
+doi: [10.1038/s41586-025-10096-w](https://doi.org/10.1038/s41586-025-10096-w)
 
 Processed dataset: [DANDI:001676](https://dandiarchive.org/dandiset/001676/0.251205.2137)
 
@@ -25,13 +25,15 @@ data from the SFARI ARC longitudinal head-direction study.
 |--------|-----------|------------|
 | Miniscope raw video (MJPEG .avi) | `MiniscopeImagingInterface` | `OnePhotonSeries` in acquisition |
 | OptiTrack tracking (CSV) | `OptiTrackInterface` (custom) | `Position` + `body_rotation_euler_yxz` in behavior |
-| Intan sync channels (ADC) | *(decode-only, not stored)* | provides hardware timestamps |
+| Intan sync channels (ADC) | `IntanConverter` | `TimeSeriesIntanSync` in acquisition |
+| Miniscope frame gate (ADC-01) | `IntanConverter` (analog events) | `MiniscopeFrameGate` events table; provides hardware timestamps |
 
 **Synchronisation:** Intan RHD analog inputs carry two TTL signals that
 hardware-stamp every Miniscope frame and every OptiTrack frame.
-`MiniscopeArcNWBConverter.temporally_align_data_interfaces()` decodes these
-pulses and replaces the Miniscope USB timestamps (which drift up to 236 ms
-over a 20-minute session) with precise hardware timestamps.
+`MiniscopeArcNWBConverter.temporally_align_data_interfaces()` reads the
+frame-gate transitions detected by NeuroConv's `IntanConverter`
+and replaces the Miniscope USB timestamps (which drift up to 236 ms over a
+20-minute session) with precise hardware timestamps.
 
 ---
 
@@ -53,13 +55,13 @@ uv pip install -e .
 ### Single session — new NWB file
 
 ```python
-from peyrache_lab_to_nwb.miniscope_arc.miniscope_arc_convert_session import session_to_nwb
+from peyrache_lab_to_nwb.miniscope_arc.convert_session import session_to_nwb
 from pathlib import Path
 
 session_to_nwb(
     session_dir_path=Path("~/source_data/peyrache-lab/A0662/2022_07_28"),
     output_dir_path=Path("~/nwb_output/peyrache"),
-    stub_test=True,   # set False for full conversion
+    stub_test=True,  # set False for full conversion
     verbose=True,
 )
 ```
@@ -85,7 +87,7 @@ session_to_nwb(
 ### All sessions
 
 ```python
-from peyrache_lab_to_nwb.miniscope_arc.miniscope_arc_convert_all_sessions import dataset_to_nwb
+from peyrache_lab_to_nwb.miniscope_arc.convert_all_sessions import dataset_to_nwb
 
 dataset_to_nwb(
     data_dir_path=Path("~/source_data/peyrache-lab"),

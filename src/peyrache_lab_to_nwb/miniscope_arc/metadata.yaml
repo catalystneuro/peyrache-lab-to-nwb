@@ -1,0 +1,111 @@
+NWBFile:
+  keywords:
+    - head direction
+    - calcium imaging
+    - miniscope
+    - longitudinal recording
+    - freely moving
+    - mouse
+    - navigation
+    - PostSubiculum
+  related_publications:
+    - doi:10.1038/s41586-025-10096-w # Updated DOI from `doi:10.1101/2024.06.13.598909` to point to the published version.
+  session_description: >
+    Raw one-photon calcium imaging (UCLA Miniscope V4) from the Postsubiculum of a
+    freely moving mouse during a longitudinal head-direction cell recording.
+    This NWB file contains raw acquisition data; corresponding processed data (DF/F,
+    ROI footprints, CellReg registration) are available in DANDI:001676.
+  experiment_description: >
+    Longitudinal recording of GCaMP6f-expressing cells in the PostSubiculum of
+    freely-moving C57BL/6J mice using a UCLA Miniscope V4 one-photon fluorescence
+    microscope. Mice explored different environments over several months to characterise
+    the long-term stability of head-direction cell representations. Behavioural position
+    and head orientation were tracked simultaneously by an OptiTrack 3-D motion-capture
+    system. An Intan RHD system recorded hardware synchronisation signals (TTL pulses)
+    linking the three acquisition systems to a common clock.
+  institution: McGill University
+  lab: Peyrache Lab
+  experimenter:
+    - Skromne Carrasco, Sofia
+    - Viejo, Guillaume
+    - Peyrache, Adrien
+
+Subject:
+  species: Mus musculus
+  genotype: C57BL/6J
+  sex: M
+  description: >
+    Adult male C57BL/6J mouse implanted with a UCLA Miniscope V4 head-mounted
+    fluorescence microscope for longitudinal calcium imaging of Postsubiculum
+    head-direction cells.
+  # age is session-specific (P243D for A0642); set per-session in convert_session.py
+  # from per-subject metadata once confirmed with the lab (open question Q7).
+
+TimeSeries:
+  intan_adc_input:  # IntanConverter's key for the ADC input stream
+    name: TimeSeriesIntanSync
+    description: >
+      Intan RHD ADC input channels used for hardware synchronisation.
+      Channel 0 (ADC-00): OptiTrack sync (one rising edge per OptiTrack frame).
+      Channel 1 (ADC-01): Miniscope frame gate — square wave where each
+      half-period spans one Miniscope frame; rising edge = even frame,
+      falling edge = odd frame.
+
+Events:
+  intan_analog_events:
+    event_types:
+      miniscope_frame_gate:
+        event_name: miniscope_frame_gate
+        event_description: >
+          Transitions of the Miniscope frame gate on Intan ADC-01, thresholded
+          halfway between its low and high levels. Each rising or falling edge
+          marks the start of one Miniscope frame.
+
+# Ophys metadata
+# The metadata for the device used for optical imaging.
+DeviceModels:
+  miniscope_v4:
+    name: Miniscope_V4
+    manufacturer: UCLA / Open Ephys
+    model_number: V4
+    description: >
+      UCLA Miniscope V4 head-mounted one-photon microscope.
+
+Devices:
+  miniscope:
+    name: Miniscope
+    device_model_metadata_key: miniscope_v4
+    description: >
+      Head-mounted one-photon microscope used for longitudinal calcium imaging of
+      Postsubiculum head-direction cells in freely moving mice.
+
+# The metadata that corresponds to where and how the imaging was done.
+Ophys:
+  ImagingPlanes:
+    miniscope_imaging:
+      name: ImagingPlane
+      description: >
+        Longitudinal recording of GCaMP6f-expressing cells in the Postsubiculum of the
+        left hemisphere, imaged through a 1.0 mm diameter GRIN lens (Inscopix) over the Postsubiculum.
+      device_metadata_key: miniscope
+      excitation_lambda: 470.0           # nm — 470 nm blue LED (GCaMP6f excitation)
+      location: Postsubiculum            # Allen Mouse Brain CCF term
+      indicator: GCaMP6f
+      grid_spacing: [0.0033, 0.0033]     # mm/pixel ≈ 3.3 µm/pixel (UCLA Miniscope V4)
+      grid_spacing_unit: millimeters
+      origin_coords: [0.32, -2.35, -1.3] # AP, ML, DV mm
+      origin_coords_unit: millimeters
+      # Lens implantation coordinates were as follows: PoSub – AP (from Lambda) + 0.32 mm, ML −2.35 mm,DV (from skull) −1.3 mm.
+      reference_frame: >
+        Stereotaxic coordinate system with Anteroposterior (AP) measured from Lambda, Mediolateral (ML) from midline, Dorsoventral (DV) from skull surface.
+      optical_channel:
+        - name: OpticalChannel
+          description: Green emission channel for GCaMP6f fluorescence detection.
+          emission_lambda: 525.0         # nm — green emission filter centre
+  MicroscopySeries:
+    miniscope_imaging:
+      name: OnePhotonSeries
+      description: >
+        Raw calcium imaging video from a UCLA Miniscope V4 one-photon fluorescence
+        microscope. The timestamps are derived from the Intan hardware sync channel (ADC-01, Miniscope
+        frame-gate square wave).

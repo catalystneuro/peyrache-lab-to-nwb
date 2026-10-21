@@ -6,16 +6,16 @@ readme = "README.md"
 authors = [{ name = "CatalystNeuro", email = "ben.dichter@catalystneuro.com" }]
 maintainers = [{ name = "CatalystNeuro", email = "ben.dichter@catalystneuro.com" }]
 license = { file = "LICENSE" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
-    "neuroconv",
+    # Intan analog events (catalystneuro/neuroconv#2052) are not yet in a release.
+    "neuroconv[intan,miniscope] @ git+https://github.com/catalystneuro/neuroconv.git@main",
     "nwbinspector",
     "ndx-miniscope",
     "roiextractors",
@@ -23,6 +23,7 @@ dependencies = [
     "numpy",
     "tqdm",
     "hdmf",
+    "ipykernel>=7.3.0",
 ]
 
 [project.urls]
@@ -37,6 +38,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build]
 include = [
