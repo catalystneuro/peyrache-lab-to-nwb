@@ -47,8 +47,8 @@ class MiniscopeArcNWBConverter(NWBConverter):
     Synchronisation
     ---------------
     ``temporally_align_data_interfaces`` reads the ADC-01 transitions from
-    ``Intan``'s ``AnalogEvents`` and calls ``set_aligned_timestamps()`` on
-    ``MiniscopeImaging``.  If ``Intan`` is absent from ``source_data`` (e.g.
+    ``Intan``'s ``AnalogEvents`` and sets them as the frame times of
+    ``MiniscopeImaging`` through its ``temporal_alignment``.  If ``Intan`` is absent from ``source_data`` (e.g.
     session 2022_07_25 where Intan data files are empty), the method is a
     no-op and the Miniscope interface falls back to USB timestamps.
     """
@@ -83,7 +83,8 @@ class MiniscopeArcNWBConverter(NWBConverter):
         intan_events = self.data_interface_objects["Intan"].data_interface_objects["AnalogEvents"]
         ms_timestamps = intan_events.get_event_times(MINISCOPE_SYNC_EVENT_NAME)
 
-        n_frames = self.data_interface_objects["MiniscopeImaging"].imaging_extractor.get_num_samples()
+        imaging_interface = self.data_interface_objects["MiniscopeImaging"]
+        n_frames = imaging_interface.imaging_extractor.get_num_samples()
         n_detected = len(ms_timestamps)
 
         if n_detected < n_frames:
@@ -98,4 +99,6 @@ class MiniscopeArcNWBConverter(NWBConverter):
         # Trim the (typically small) tail where Intan runs past the last frame
         ms_timestamps = ms_timestamps[:n_frames]
 
-        self.data_interface_objects["MiniscopeImaging"].set_aligned_timestamps(ms_timestamps)
+        # The imaging interface registers one time-bearing object, keyed by its metadata key.
+        (series_key,) = imaging_interface.temporal_alignment.keys()
+        imaging_interface.temporal_alignment[series_key].set_times(ms_timestamps)
