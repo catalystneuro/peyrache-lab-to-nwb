@@ -2,28 +2,39 @@
 
 from __future__ import annotations
 
-import warnings
 from typing import Optional
 
+import numpy as np
 from neuroconv import NWBConverter
 from neuroconv.converters import IntanConverter
-from neuroconv.datainterfaces import MiniscopeImagingInterface
-
-from peyrache_lab_to_nwb.miniscope_arc.constants import CH_MINISCOPE
+from neuroconv.datainterfaces import MiniscopeImagingInterface, OptiTrackInterface
 
 MINISCOPE_SYNC_EVENT_NAME = "miniscope_frame_gate"
 
-# Detection configuration for ``IntanConverter``: every transition of
-# the ADC-01 frame gate marks the start of one Miniscope frame.  The gate is a
-# two-level TTL, so it is cut halfway between its minimum and maximum.
-MINISCOPE_SYNC_DETECTION_CONFIGURATION = {
-    CH_MINISCOPE: [
-        {
-            "signal_conditioning": {"binarize": "midpoint"},
-            "detection": "value_change",
-            "event_name": MINISCOPE_SYNC_EVENT_NAME,
-        },
-    ],
+# Detection spec for the frame-gate channel in ``IntanConverter``'s
+# ``detection_configuration``: every transition of the frame gate marks the start
+# of one Miniscope frame.  The gate is a two-level TTL, so it is cut halfway
+# between its minimum and maximum.  Each transition is timed at the last sample
+# before it, which is how the published DANDI:001676 imaging timestamps were
+# derived.  The channel varies between sessions and is found per session.
+MINISCOPE_SYNC_DETECTION_SPEC = {
+    "signal_conditioning": {"binarize": "midpoint"},
+    "detection": "value_change",
+    "event_time_convention": "sample_before_transition",
+    "event_name": MINISCOPE_SYNC_EVENT_NAME,
+}
+
+OPTITRACK_SYNC_EVENT_NAME = "OptiTrackSync"
+
+# Detection spec for the OptiTrack sync channel: Motive sends one 0.5 ms pulse per frame, at
+# 120 Hz.  Each rising edge is timed at the first sample after the transition, as in the
+# published DANDI:001676 behaviour timestamps.  The cut is halfway between the signal's minimum
+# and maximum, and a pulse with a sample partway up its edge can come out one sample (50 µs)
+# later than published; this happens for at most 5 pulses per session.
+OPTITRACK_SYNC_DETECTION_SPEC = {
+    "signal_conditioning": {"binarize": "midpoint"},
+    "detection": "rising",
+    "event_name": OPTITRACK_SYNC_EVENT_NAME,
 }
 
 
@@ -32,6 +43,10 @@ class MiniscopeArcNWBConverter(NWBConverter):
 
     Data streams
     ------------
+    OptiTrack
+        The OptiTrack Motive ``Take`` CSV export via NeuroConv's
+        ``OptiTrackInterface``: the rigid body's position and orientation, written
+        to ``processing/behavior``.
     MiniscopeImaging
         Raw UCLA Miniscope V4 video (MJPEG .avi chunks) via the built-in
         ``MiniscopeImagingInterface``.  Produces a ``OnePhotonSeries`` in
@@ -40,21 +55,24 @@ class MiniscopeArcNWBConverter(NWBConverter):
         NeuroConv's ``IntanConverter``, which discovers the streams in the RHD
         header.  These recordings carry only the ADC input stream, giving two
         children: ``AnalogADCInput`` stores both ADC channels as
-        ``TimeSeriesIntanSync`` in acquisition (ADC-00 = OptiTrack sync;
-        ADC-01 = Miniscope frame gate), and ``AnalogEvents`` detects the
-        ADC-01 transitions with ``MINISCOPE_SYNC_DETECTION_CONFIGURATION``.
+        ``TimeSeriesIntanSync`` in acquisition (OptiTrack sync and Miniscope
+        frame gate), and ``AnalogEvents`` detects the frame-gate transitions
+        with ``MINISCOPE_SYNC_DETECTION_SPEC`` and the OptiTrack sync pulses with
+        ``OPTITRACK_SYNC_DETECTION_SPEC``.
 
     Synchronisation
     ---------------
-    ``temporally_align_data_interfaces`` reads the ADC-01 transitions from
-    ``Intan``'s ``AnalogEvents`` and sets them as the frame times of
-    ``MiniscopeImaging`` through its ``temporal_alignment``.  If ``Intan`` is absent from ``source_data`` (e.g.
+    ``temporally_align_data_interfaces`` reads the frame-gate transitions from
+    ``Intan``'s ``AnalogEvents`` and sets transition i as the time of video
+    frame i of ``MiniscopeImaging`` through its ``temporal_alignment``.  Take frame i of
+    ``OptiTrack`` is set to OptiTrack sync pulse i.  If ``Intan`` is absent from ``source_data`` (e.g.
     session 2022_07_25 where Intan data files are empty), the method is a
     no-op and the Miniscope interface falls back to USB timestamps.
     """
 
     data_interface_classes = dict(
         MiniscopeImaging=MiniscopeImagingInterface,
+        OptiTrack=OptiTrackInterface,
         Intan=IntanConverter,
     )
 
@@ -63,42 +81,52 @@ class MiniscopeArcNWBConverter(NWBConverter):
         metadata: Optional[dict] = None,
         conversion_options: Optional[dict] = None,
     ) -> None:
-        """Set Miniscope frame times from the Intan ADC-01 hardware sync pulses.
+        """Set Miniscope frame times from the Intan frame-gate transitions, and OptiTrack frame times from its sync.
 
-        ADC-01 carries the Miniscope frame gate (square wave).  One full
+        The frame gate is a square wave.  One full
         HIGH→LOW cycle spans exactly 2 Miniscope frames:
 
         - Rising edge  → even frame (0, 2, 4, …)
         - Falling edge → odd  frame (1, 3, 5, …)
 
-        so every transition is one frame.  Pulse width ≈ 40.6 ms = one
-        Miniscope frame period.  If ``Intan`` or ``MiniscopeImaging`` is
-        absent, this is a no-op.
+        so every transition is one frame.
+
+        Motive sends one sync pulse per OptiTrack frame and keeps sending while it is not
+        recording, so a session has more pulses than take frames.  Take frame i is pulse i,
+        the first pulse after the Intan start being take frame 0, as in the published behavior timestamps.
+
+        Without ``Intan`` this is a no-op, and each stream it does not find is left as it is.
         """
         if "Intan" not in self.data_interface_objects:
             return
-        if "MiniscopeImaging" not in self.data_interface_objects:
-            return
 
         intan_events = self.data_interface_objects["Intan"].data_interface_objects["AnalogEvents"]
-        ms_timestamps = intan_events.get_event_times(MINISCOPE_SYNC_EVENT_NAME)
 
-        imaging_interface = self.data_interface_objects["MiniscopeImaging"]
-        n_frames = imaging_interface.imaging_extractor.get_num_samples()
-        n_detected = len(ms_timestamps)
-
-        if n_detected < n_frames:
-            warnings.warn(
-                f"Miniscope sync: only {n_detected} hardware timestamps detected "
-                f"for {n_frames} video frames — {n_frames - n_detected} frames will "
-                f"lack hardware timestamps. Check the Intan ADC-01 signal.",
-                UserWarning,
-                stacklevel=2,
+        if "OptiTrack" in self.data_interface_objects:
+            optitrack_interface = self.data_interface_objects["OptiTrack"]
+            pulse_times = np.asarray(intan_events.get_event_times(OPTITRACK_SYNC_EVENT_NAME))
+            n_take_frames = len(optitrack_interface.get_original_timestamps())
+            if len(pulse_times) < n_take_frames:
+                raise ValueError(
+                    f"The Intan OptiTrack sync has only {len(pulse_times)} pulses for {n_take_frames} take frames."
+                )
+            optitrack_interface.temporal_alignment[optitrack_interface.metadata_key].set_times(
+                pulse_times[:n_take_frames]
             )
 
-        # Trim the (typically small) tail where Intan runs past the last frame
-        ms_timestamps = ms_timestamps[:n_frames]
-
-        # The imaging interface registers one time-bearing object, keyed by its metadata key.
-        (series_key,) = imaging_interface.temporal_alignment.keys()
-        imaging_interface.temporal_alignment[series_key].set_times(ms_timestamps)
+        if "MiniscopeImaging" in self.data_interface_objects:
+            imaging_interface = self.data_interface_objects["MiniscopeImaging"]
+            gate_times = np.asarray(intan_events.get_event_times(MINISCOPE_SYNC_EVENT_NAME))
+            frame_times = gate_times[: imaging_interface.imaging_extractor.get_num_samples()]
+            # The imaging interface registers one time-bearing object, keyed by its metadata key.
+            (series_key,) = imaging_interface.temporal_alignment.keys()
+            if len(frame_times) < imaging_interface.imaging_extractor.get_num_samples():
+                # In some sessions the frame gate stops a few frames before the video ends. The frames after
+                # its last transition have no time and are left out, as in the published traces.
+                imaging_interface.imaging_extractor = imaging_interface.imaging_extractor.slice_samples(
+                    start_sample=0, end_sample=len(frame_times)
+                )
+                imaging_interface.temporal_alignment[series_key]._get_number_of_samples = (
+                    imaging_interface.imaging_extractor.get_num_samples
+                )
+            imaging_interface.temporal_alignment[series_key].set_times(frame_times)
