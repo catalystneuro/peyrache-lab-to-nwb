@@ -65,14 +65,14 @@ from pathlib import Path
 from peyrache_lab_to_nwb.miniscope_arc.convert_session import session_to_nwb
 
 session_to_nwb(
-    session_dir_path=Path("~/source_data/peyrache-lab/A0662/2022_08_29").expanduser(),
+    session_dir_path=Path("~/source_data/peyrache-lab/A0662/2022_11_14").expanduser(),
     output_dir_path=Path("~/nwb_output/peyrache").expanduser(),
     stub_test=True,  # set False for full conversion
     verbose=True,
 )
 ```
 
-Writes `sub-A0662_ses-2022-08-29_behavior+ophys.nwb`, the same name a combined file gets. The session start time is read from the
+Writes `sub-A0662_ses-2022-11-14_behavior+ophys.nwb`, the same name a combined file gets. The session start time is read from the
 Intan directory name (`{subject}_{YYMMDD}_{HHMMSS}`), so sessions whose Intan directory is
 called `Intan/` (the July 2022 sessions) raise an error.
 
@@ -85,16 +85,16 @@ dandi download "https://api.dandiarchive.org/api/assets/7606bd39-d264-46bc-908b-
 
 ```python
 session_to_nwb(
-    session_dir_path=Path("~/source_data/peyrache-lab/A0662/2022_08_29").expanduser(),
+    session_dir_path=Path("~/source_data/peyrache-lab/A0662/2022_11_14").expanduser(),
     output_dir_path=Path("~/nwb_output/peyrache").expanduser(),
     processed_nwbfile_path=Path(
-        "~/source_data/dandi/001676/sub-A0662/sub-A0662_ses-20220829T185721_behavior+ophys.nwb"
+        "~/source_data/dandi/001676/sub-A0662/sub-A0662_ses-20221114T101446_behavior+ophys.nwb"
     ).expanduser(),
     verbose=True,
 )
 ```
 
-Writes `sub-A0662_ses-2022-08-29_behavior+ophys.nwb`; the downloaded file is only read. The raw
+Writes `sub-A0662_ses-2022-11-14_behavior+ophys.nwb`; the downloaded file is only read. The raw
 session is built in memory and added to a copy of the published file, which keeps its processed
 data unchanged and gains the raw video, `TimeSeriesIntanSync`, `MiniscopeFrameGate`, the raw
 OptiTrack take in `processing/behavior` with `OptiTrackSync`, and this conversion's imaging plane
@@ -105,9 +105,12 @@ published file-level and subject metadata. The session description from `metadat
 raw data) is extended with `ProcessedSessionDescription` and followed by the published one on a
 line starting `Session:`, and the experiment description by
 the published protocol on a line starting `Protocol phase:`; `Subject.age` is kept as published.
-Frame-gate transitions are timed at the last Intan sample before each transition, as in the
-published files, so the raw frames the ROI traces cover carry the published ROI timestamps.
-See `conversion_notes.md`, *Append mode* and *Frame timing on hold*.
+Frame-gate transitions and OptiTrack sync pulses are detected with the lab's own rule, as in the
+published files, so the raw frames the ROI traces cover carry the published ROI timestamps and the
+raw take carries the published behaviour timestamps. Like the published timestamps, this does not
+account for frames dropped from the video; `dataset_to_nwb` leaves out the sessions listed in
+`sessions_on_hold.py` unless `include_sessions_on_hold=True`. See `conversion_notes.md`,
+*Append mode* and *Frame timing on hold*.
 
 Run NWB Inspector and `dandi validate` on the result before any upload.
 
