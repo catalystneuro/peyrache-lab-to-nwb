@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 import scipy.signal
 from neuroconv import NWBConverter
@@ -28,11 +26,11 @@ MINISCOPE_SYNC_DETECTION_SPEC = {
 
 OPTITRACK_SYNC_EVENT_NAME = "OptiTrackSync"
 
-# Detection spec for the OptiTrack sync channel: Motive sends one 0.5 ms pulse per frame, at
-# 120 Hz.  Each rising edge is timed at the first sample after the transition, as in the
-# published DANDI:001676 behaviour timestamps.  The cut is halfway between the signal's minimum
-# and maximum, and a pulse with a sample partway up its edge can come out one sample (50 µs)
-# later than published; this happens for at most 4 pulses per session.
+# Detection spec for the OptiTrack sync channel in ``IntanConverter``'s ``detection_configuration``:
+# Motive sends one 0.5 ms pulse per frame, at 120 Hz, and every rising edge is written to the
+# ``OptiTrackSync`` events table.  The take frame times are not taken from this table but from
+# ``optitrack_sync_samples`` (the lab's detection); the two differ by one sample (50 µs) at a pulse
+# with a sample partway up its edge.  The converter reads the channel from this entry.
 OPTITRACK_SYNC_DETECTION_SPEC = {
     "signal_conditioning": {"binarize": "midpoint"},
     "detection": "rising",
@@ -44,6 +42,8 @@ OPTITRACK_SYNC_DETECTION_SPEC = {
 # sample-to-sample change of the raw ADC counts, at least this high and this many samples apart.
 _GATE_PEAK_HEIGHT = 30000
 _GATE_PEAK_DISTANCE = 500
+# The same height for the rising edges of the OptiTrack sync, also from loadCalciumData.
+_SYNC_PEAK_HEIGHT = 30000
 
 
 def frame_gate_samples(gate_trace: np.ndarray) -> np.ndarray:
@@ -66,9 +66,37 @@ def frame_gate_samples(gate_trace: np.ndarray) -> np.ndarray:
     np.ndarray
         Sample indices into ``gate_trace``.
     """
+    # Signed, so that falling edges are not wrapped around by uint16 subtraction.
     jumps = np.abs(np.diff(gate_trace.astype(np.int32)))
-    peaks, _ = scipy.signal.find_peaks(jumps, height=_GATE_PEAK_HEIGHT, distance=_GATE_PEAK_DISTANCE)
+    peaks, _ = scipy.signal.find_peaks(
+        jumps, height=_GATE_PEAK_HEIGHT, distance=_GATE_PEAK_DISTANCE
+    )
     return peaks
+
+
+def optitrack_sync_samples(sync_trace: np.ndarray) -> np.ndarray:
+    """Return the sample index of each OptiTrack sync pulse, by the lab's detection.
+
+    The lab's loadCalciumData (gviejo/PSBImaging python/wrappers.py) takes the peaks of the
+    sample-to-sample rise of the raw ADC counts that are at least ``_SYNC_PEAK_HEIGHT`` high, plus one:
+    the sample after the largest step of each rising edge.  When the ADC catches an edge halfway, the
+    halfway sample is that sample.  This reproduces the published DANDI:001676 behaviour timestamps
+    sample for sample.
+
+    Parameters
+    ----------
+    sync_trace : np.ndarray
+        The OptiTrack sync ADC channel in raw counts (uint16).
+
+    Returns
+    -------
+    np.ndarray
+        Sample indices into ``sync_trace``.
+    """
+    # Signed, so that differences of uint16 counts do not wrap around.
+    rises = np.diff(sync_trace.astype(np.int32))
+    peaks, _ = scipy.signal.find_peaks(rises, height=_SYNC_PEAK_HEIGHT)
+    return peaks + 1
 
 
 class MiniscopeArcNWBConverter(NWBConverter):
@@ -89,9 +117,9 @@ class MiniscopeArcNWBConverter(NWBConverter):
         header.  These recordings carry only the ADC input stream, giving two
         children: ``AnalogADCInput`` stores both ADC channels as
         ``TimeSeriesIntanSync`` in acquisition (OptiTrack sync and Miniscope
-        frame gate), and ``AnalogEvents`` detects the frame-gate transitions
-        with ``MINISCOPE_SYNC_DETECTION_SPEC`` and the OptiTrack sync pulses with
-        ``OPTITRACK_SYNC_DETECTION_SPEC``.
+        frame gate), and ``AnalogEvents`` writes the frame-gate transitions
+        detected with ``MINISCOPE_SYNC_DETECTION_SPEC`` and the OptiTrack sync pulses detected with
+        ``OPTITRACK_SYNC_DETECTION_SPEC`` as events tables.
 
     Synchronisation
     ---------------
@@ -99,8 +127,8 @@ class MiniscopeArcNWBConverter(NWBConverter):
     the raw frame-gate trace of ``Intan``'s ``AnalogADCInput`` with
     ``frame_gate_samples`` (the lab's detection) and sets transition i as the
     time of video frame i of ``MiniscopeImaging`` through its
-    ``temporal_alignment``.  Take frame i of
-    ``OptiTrack`` is set to OptiTrack sync pulse i.  If ``Intan`` is absent from ``source_data`` (e.g.
+    ``temporal_alignment``.  Take frame i of ``OptiTrack`` is set to OptiTrack sync pulse i, detected
+    in the raw sync trace with ``optitrack_sync_samples`` (the lab's detection).  If ``Intan`` is absent from ``source_data`` (e.g.
     session 2022_07_25 where Intan data files are empty), the method is a
     no-op and the Miniscope interface falls back to USB timestamps.
     """
@@ -113,21 +141,28 @@ class MiniscopeArcNWBConverter(NWBConverter):
 
     def __init__(self, source_data: dict[str, dict], verbose: bool = False):
         super().__init__(source_data=source_data, verbose=verbose)
-        # The frame-gate channel is the one whose detection spec names the Miniscope frame gate.
-        detection_configuration = source_data.get("Intan", {}).get("detection_configuration", {})
-        self._frame_gate_channel = next(
-            (
-                channel_id
-                for channel_id, specs in detection_configuration.items()
-                if any(spec.get("event_name") == MINISCOPE_SYNC_EVENT_NAME for spec in specs)
-            ),
-            None,
+        # Each sync channel is the one whose detection spec names its event.
+        detection_configuration = source_data.get("Intan", {}).get(
+            "detection_configuration", {}
         )
+
+        def channel_of(event_name):
+            return next(
+                (
+                    channel_id
+                    for channel_id, specs in detection_configuration.items()
+                    if any(spec.get("event_name") == event_name for spec in specs)
+                ),
+                None,
+            )
+
+        self._frame_gate_channel = channel_of(MINISCOPE_SYNC_EVENT_NAME)
+        self._optitrack_sync_channel = channel_of(OPTITRACK_SYNC_EVENT_NAME)
 
     def temporally_align_data_interfaces(
         self,
-        metadata: Optional[dict] = None,
-        conversion_options: Optional[dict] = None,
+        metadata: dict | None = None,
+        conversion_options: dict | None = None,
     ) -> None:
         """Set Miniscope frame times from the Intan frame-gate transitions, and OptiTrack frame times from its sync.
 
@@ -151,19 +186,33 @@ class MiniscopeArcNWBConverter(NWBConverter):
         if "Intan" not in self.data_interface_objects:
             return
 
-        intan_events = self.data_interface_objects["Intan"].data_interface_objects["AnalogEvents"]
+        adc_recording = (
+            self.data_interface_objects["Intan"]
+            .data_interface_objects["AnalogADCInput"]
+            .recording_extractor
+        )
 
         if "OptiTrack" in self.data_interface_objects:
+            if self._optitrack_sync_channel is None:
+                raise ValueError(
+                    f"No Intan detection_configuration entry names the event '{OPTITRACK_SYNC_EVENT_NAME}', so the "
+                    "OptiTrack sync channel is unknown."
+                )
             optitrack_interface = self.data_interface_objects["OptiTrack"]
-            pulse_times = np.asarray(intan_events.get_event_times(OPTITRACK_SYNC_EVENT_NAME))
+            sync_trace = adc_recording.get_traces(
+                channel_ids=[self._optitrack_sync_channel], return_in_uV=False
+            )[:, 0]
+            pulse_times = adc_recording.sample_index_to_time(
+                optitrack_sync_samples(sync_trace), segment_index=0
+            )
             n_take_frames = len(optitrack_interface.get_original_timestamps())
             if len(pulse_times) < n_take_frames:
                 raise ValueError(
                     f"The Intan OptiTrack sync has only {len(pulse_times)} pulses for {n_take_frames} take frames."
                 )
-            optitrack_interface.temporal_alignment[optitrack_interface.metadata_key].set_times(
-                pulse_times[:n_take_frames]
-            )
+            optitrack_interface.temporal_alignment[
+                optitrack_interface.metadata_key
+            ].set_times(pulse_times[:n_take_frames])
 
         if "MiniscopeImaging" not in self.data_interface_objects:
             return
@@ -173,22 +222,31 @@ class MiniscopeArcNWBConverter(NWBConverter):
                 f"No Intan detection_configuration entry names the event '{MINISCOPE_SYNC_EVENT_NAME}', so the "
                 "frame-gate channel is unknown."
             )
-        adc_recording = self.data_interface_objects["Intan"].data_interface_objects["AnalogADCInput"].recording_extractor
-        gate_trace = adc_recording.get_traces(channel_ids=[self._frame_gate_channel], return_in_uV=False)[:, 0]
-        gate_times = adc_recording.sample_index_to_time(frame_gate_samples(gate_trace), segment_index=0)
+        gate_trace = adc_recording.get_traces(
+            channel_ids=[self._frame_gate_channel], return_in_uV=False
+        )[:, 0]
+        gate_times = adc_recording.sample_index_to_time(
+            frame_gate_samples(gate_trace), segment_index=0
+        )
 
         imaging_interface = self.data_interface_objects["MiniscopeImaging"]
-        frame_times = gate_times[: imaging_interface.imaging_extractor.get_num_samples()]
+        frame_times = gate_times[
+            : imaging_interface.imaging_extractor.get_num_samples()
+        ]
         # The imaging interface registers one time-bearing object, keyed by its metadata key.
         (series_key,) = imaging_interface.temporal_alignment.keys()
         if len(frame_times) < imaging_interface.imaging_extractor.get_num_samples():
             # In some sessions the frame gate stops a few frames before the video ends. The frames after
             # its last transition have no time and are left out, as in the published traces.
-            imaging_interface.imaging_extractor = imaging_interface.imaging_extractor.slice_samples(
-                start_sample=0, end_sample=len(frame_times)
+            imaging_interface.imaging_extractor = (
+                imaging_interface.imaging_extractor.slice_samples(
+                    start_sample=0, end_sample=len(frame_times)
+                )
             )
             # The interface counts samples on the extractor it was created with.
-            imaging_interface.temporal_alignment[series_key]._get_number_of_samples = (
+            imaging_interface.temporal_alignment[
+                series_key
+            ]._get_number_of_samples = (
                 imaging_interface.imaging_extractor.get_num_samples
             )
         imaging_interface.temporal_alignment[series_key].set_times(frame_times)
