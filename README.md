@@ -35,8 +35,10 @@ hardware-stamp every Miniscope frame and every OptiTrack frame.
 frame-gate transitions and OptiTrack sync pulses detected by NeuroConv's `IntanConverter`
 and replaces the Miniscope USB timestamps (which drift up to 236 ms over a
 20-minute session) and the Motive frame times with hardware timestamps. Video frame i is
-frame-gate transition i, and take frame i is OptiTrack pulse i, as in the published files. When
-the frame gate stops before the video ends, the frames after its last transition are left out.
+frame-gate transition i, with transitions detected by the lab's own rule
+(`frame_gate_samples`, from [gviejo/PSBImaging](https://github.com/gviejo/PSBImaging/blob/main/python/wrappers.py)),
+which drops glitch transitions and reproduces the published imaging timestamps. Frames missing
+from the video are not accounted for, as in the published files. Take frame i is OptiTrack pulse i.
 
 ---
 
