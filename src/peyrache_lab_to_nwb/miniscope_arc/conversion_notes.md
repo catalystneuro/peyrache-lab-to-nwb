@@ -442,6 +442,26 @@ readable raw data; every count below is out of these. Three raw A0662 sessions (
 09-22) have no published file. The other five mice (A0671, A0676, A0678, A0682, A0683, 7 sessions
 each) have no raw data on the Drive.
 
+**Current rule (2026-11-05): the lab's detection.** The converter now detects frame-gate
+transitions with the rule in gviejo/PSBImaging `python/wrappers.py`
+(https://github.com/gviejo/PSBImaging/blob/main/python/wrappers.py):
+`scipy.signal.find_peaks(np.abs(np.diff(adc)), height=30000, distance=500)` on the raw ADC counts
+of the frame-gate channel, each peak being the last sample before a transition
+(`frame_gate_samples` in `nwbconverter.py`). Of two transitions closer than 500 samples only the
+one with the larger jump is kept. Video frame i is transition i, and the video is cut to the
+number of transitions when the gate ends first. This reproduces the published imaging timestamps
+sample for sample in all 15 glitch sessions, and in every other session checked so far. Decided
+with the project lead so the raw and published timestamps agree.
+
+The rule does not account for frames missing from the video, and neither do the published
+timestamps. Where the Miniscope lost frames the frame times are late by one frame period per lost
+frame from that point on (A0662/2022-12-02: 83 frames, 2.8 s, for the second half of the session;
+A0668/2023-02-09: 30 frames, 1 s). The rule that skips them (`frame_times_from_gate`) is kept in
+git stash `stash@{0}`. The `MiniscopeFrameGate` events table still holds every transition,
+glitches included.
+
+The paragraphs below record how we got here.
+
 The converter times video frame i at frame-gate transition i, the rule that reproduces the
 published imaging timestamps: they are a contiguous run of gate transitions in 324 of 343
 sessions, and within one sample in 4 more. The other 15 have glitches in the gate (extra
@@ -455,9 +475,40 @@ The Miniscope's USB timestamps also show frames missing from the video (2022-08-
 frame 718), which neither the published timestamps nor this rule account for. A rule that drops
 glitch transitions and skips the transitions of missing frames (`frame_times_from_gate`, with
 tests) changes the frame times of 77 sessions, by up to 79 frames, and both video durations and
-head-direction tuning favour it where the difference is 3 frames or more. It is kept in the git
-stash "Precise frame alignment (frame_times_from_gate), held until the lab replies" until the lab
-shares the code behind the published timestamps (asked 2026-10-30).
+head-direction tuning favour it where the difference is 3 frames or more. It was held in a git
+stash until the lab shared the code behind the published timestamps (asked 2026-10-30), and
+restored to `nwbconverter.py` on 2026-11-04 so the glitch sessions can be compared
+(`notebooks/glitch_session_frame_timing.ipynb`).
+
+**Stash vs published in the 15 glitch sessions (2026-11-04).** `frame_times_from_gate` matches the
+published timestamps exactly in none of them, for three reasons:
+- Almost every glitch coincides with a frame lost from the video (the USB timestamps step by one
+  period there). The stash skips a transition for each lost frame; the published timestamps do so
+  in only 6 of the 27 glitch clusters, and not for the 154 frames lost at once in A0668/2023-02-09.
+  Without the missing-frame step the stash matches A0667 2023-01-19, 02-07, 02-09, 02-16 and
+  A0670 2023-03-28 exactly.
+- At a close pair the stash keeps the earlier transition and the published file sometimes the
+  later one (A0642 2021-07-05, A0667 2023-02-10, A0668 2023-02-09, 2023-02-10): 1 or 2 frames
+  differ by under 5 ms.
+- Where a glitch splits a period into two long parts (A0662 2022-09-15, 2022-09-27, A0667
+  2023-02-17, 2023-03-28, A0670 2023-03-20, first cluster of A0668 2023-02-16) the published file
+  drops two on-grid transitions and keeps the off-grid one between them. That skips one frame,
+  as the stash does for the lost frame, so only 2 or 3 frames around the glitch differ.
+On the frame grid (positions in median periods), the published file keeps every on-grid transition
+in 17 of the 27 clusters and leaves out an on-grid one for an off-grid one in 10: the 6 split
+periods above and 4 where a glitch falls just before or after a grid transition (A0642 2021-07-05,
+A0667 2023-02-10 burst, A0668 2023-02-10 gate 35126, A0670 2023-03-28). Of the gate-only rules
+tried, keep earlier, keep later and keep on-grid each match 15 clusters at their best threshold,
+drop-before-short 12, drop-after-short 8 and debounce none; none matches the split periods or the
+burst (`notebooks/glitch_session_frame_timing.ipynb`, *Which transitions the lab keeps*).
+
+With the clock drift removed, each frame's USB timestamp sits a fixed time after its gate
+transition to about 1 ms (90th percentile 1.4 ms), so it can say which transition of a glitch is
+the frame. For the 162 frames from 2 before to 3 after each glitch, the gate transition nearest the
+drift-corrected USB time is the stash's in 150 and the published one in 51. It favours the later
+transition of a close pair, as the published file does and the stash does not, in A0667
+2023-02-10 (2.4 ms apart), A0668 2023-02-09 (7.5 ms) and A0668 2023-02-10 (1.4 ms). The other
+mismatches are frames delivered late over USB.
 
 In 10 sessions the gate stops 1 to 8 frames before the video ends (A0642 2021-06-16, A0662
 2022-10-27, A0667 2022-12-07, A0668 2022-11-23, 2023-03-13, 2023-03-23, A0670 2023-01-11,
@@ -613,10 +664,6 @@ the raw OptiTrack series in a new `behavior` module, and `OptiTrackSync`. The pu
 from the conversion's metadata (below), NeuroConv's default backend configuration is applied, and
 the result is exported to the new path. The published file is only read; no raw file is written
 to disk. The export writes NWB 2.11.0 with the core, hdmf and ndx-miniscope schemas cached.
-NeuroConv's `OptiTrackInterface` imports ndx-pose even when it writes no pose estimation, so
-ndx-pose is cached too and PyNWB validation fails on it
-(https://github.com/NeurodataWithoutBorders/pynwb/issues/1777); `_remove_unused_namespace` deletes
-that unused spec from every output file until NeuroConv imports it only when needed.
 
 Until 2026-10-30 the raw session was built as a separate in-memory file and its objects were
 moved into the published one. The current version gives the same file (all 311 groups, datasets,
