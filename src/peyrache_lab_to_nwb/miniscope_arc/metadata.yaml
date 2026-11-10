@@ -11,10 +11,9 @@ NWBFile:
   related_publications:
     - doi:10.1038/s41586-025-10096-w # Updated DOI from `doi:10.1101/2024.06.13.598909` to point to the published version.
   session_description: >
-    Raw one-photon calcium imaging (UCLA Miniscope V4) from the Postsubiculum of a
-    freely moving mouse during a longitudinal head-direction cell recording.
-    This NWB file contains raw acquisition data; corresponding processed data (DF/F,
-    ROI footprints, CellReg registration) are available in DANDI:001676.
+    Raw one-photon calcium imaging (UCLA Miniscope V4) from the Postsubiculum of a freely moving
+    mouse during a longitudinal head-direction cell recording. The raw data includes the Miniscope
+    video, the Intan synchronisation channels and the Miniscope frame-gate transitions as events.
   experiment_description: >
     Longitudinal recording of GCaMP6f-expressing cells in the PostSubiculum of
     freely-moving C57BL/6J mice using a UCLA Miniscope V4 one-photon fluorescence
@@ -29,6 +28,12 @@ NWBFile:
     - Skromne Carrasco, Sofia
     - Viejo, Guillaume
     - Peyrache, Adrien
+
+# Added after NWBFile.session_description when the raw session is added to its published
+# DANDI:001676 file (processed_nwbfile_path in convert_session.py). Not passed to NeuroConv.
+ProcessedSessionDescription: >
+  The processed data includes DF/F traces, ROI footprints, CellReg registration, and the 2D
+  position and head direction from OptiTrack.
 
 Subject:
   species: Mus musculus
@@ -45,11 +50,11 @@ TimeSeries:
   intan_adc_input:  # IntanConverter's key for the ADC input stream
     name: TimeSeriesIntanSync
     description: >
-      Intan RHD ADC input channels used for hardware synchronisation.
-      Channel 0 (ADC-00): OptiTrack sync (one rising edge per OptiTrack frame).
-      Channel 1 (ADC-01): Miniscope frame gate — square wave where each
-      half-period spans one Miniscope frame; rising edge = even frame,
-      falling edge = odd frame.
+      Intan RHD ADC input channels used for hardware synchronisation, one column
+      per channel: the OptiTrack sync (one rising edge per OptiTrack frame) and the
+      Miniscope frame gate, a square wave where each half-period spans one
+      Miniscope frame; rising edge = even frame, falling edge = odd frame. Which
+      ADC inputs carry the two signals varies between sessions.
 
 Events:
   intan_analog_events:
@@ -57,9 +62,16 @@ Events:
       miniscope_frame_gate:
         event_name: miniscope_frame_gate
         event_description: >
-          Transitions of the Miniscope frame gate on Intan ADC-01, thresholded
+          Transitions of the Miniscope frame gate on its Intan ADC input, thresholded
           halfway between its low and high levels. Each rising or falling edge
           marks the start of one Miniscope frame.
+      OptiTrackSync:
+        event_name: OptiTrackSync
+        event_description: >
+          Rising edges of the OptiTrack sync on its Intan ADC input, thresholded
+          halfway between its low and high levels. Motive sends one pulse per
+          OptiTrack frame at 120 Hz, also while it is not recording; take frame i
+          is pulse i.
 
 # Ophys metadata
 # The metadata for the device used for optical imaging.
@@ -107,5 +119,5 @@ Ophys:
       name: OnePhotonSeries
       description: >
         Raw calcium imaging video from a UCLA Miniscope V4 one-photon fluorescence
-        microscope. The timestamps are derived from the Intan hardware sync channel (ADC-01, Miniscope
+        microscope. The timestamps are derived from the Intan hardware sync channel (Miniscope
         frame-gate square wave).

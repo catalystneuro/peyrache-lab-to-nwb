@@ -136,7 +136,7 @@ The capture start time in the filename provides session wall-clock time, useful 
 - `Rotation (Y, X, Z)` → `TimeSeries` or `SpatialSeries` (units: degrees, Euler angles)
 - Both stored in `nwbfile.processing["behavior"]`
 
-**NeuroConv interface**: None available → **CUSTOM INTERFACE NEEDED** (`OptiTrackInterface`)
+**NeuroConv interface**: `OptiTrackInterface` (neuroconv#2085, https://github.com/catalystneuro/neuroconv/pull/2085), used since 2026-10-29. See *OptiTrack (added 2026-10-29)*.
 
 ---
 
@@ -230,7 +230,7 @@ Overlap (all three systems active and synced): **3.46 – 1201.88 s (≈1198.4 s
 ### Open sync questions
 
 - [ ] **Sync-Q1**: Why is session 1 (2022_07_25) missing Intan data? How was it synchronized?
-- [x] **Sync-Q2**: What synchronization method was used for the PROCESSED data in DANDI:001676? Are our derived timestamps consistent with the existing NWB files? → Same Intan hardware sync; see *DANDI:001676 cross-validation*. Our imaging timestamps sit exactly one sample after DANDI's (re-run 2026-10-20).
+- [x] **Sync-Q2**: What synchronization method was used for the PROCESSED data in DANDI:001676? Are our derived timestamps consistent with the existing NWB files? → Same Intan hardware sync; see *DANDI:001676 cross-validation*. Our imaging timestamps sat exactly one sample after DANDI's (re-run 2026-10-20); since 2026-10-29 they match exactly (see *Timestamp convention*), except in sessions with gate glitches (see *Frame timing on hold*).
 - [x] **Sync-Q3**: Is ADC-00 wired to the OptiTrack "sync out" port, and ADC-01 to the Miniscope DAQ "frame out"? → Confirmed empirically by the DANDI comparison.
 
 ---
@@ -272,30 +272,56 @@ For this session the raw imaging timestamps are the published ones plus exactly 
 (50 µs) on every shared frame, with no drift. Both files keep every timestamp on the 50 µs
 sample grid.
 
-### Timestamp convention: we follow NeuroConv (decided 2026-10-20)
+### Timestamp convention: sample before the transition (decided 2026-10-29)
 
 Each frame-gate edge completes between two consecutive Intan samples, so a decoder has to
 assign it to either the last sample in the old level (k−1) or the first sample in the new level
-(k). NeuroConv uses k for every detection reading (`_detect_events` adds 1 to each `np.diff`
-index), and no `detection_configuration` setting changes that; the cut level does not either,
-except on the rare edges with a sample partway between levels.
+(k). NeuroConv used k for every detection reading until catalystneuro/neuroconv#2133
+(https://github.com/catalystneuro/neuroconv/pull/2133) added `event_time_convention` to the
+detection specs. The published imaging timestamps correspond to k−1, while the published
+behaviour timestamps correspond to k, which is why imaging showed the one-sample offset in the
+2026-10-20 re-run and behaviour matched exactly.
 
-The raw conversion writes what NeuroConv detects, with no correction: `OnePhotonSeries.timestamps`
-and `MiniscopeFrameGate` both hold sample k. The published imaging timestamps correspond to
-k−1, while the published behaviour timestamps correspond to k, which is why imaging shows the
-one-sample offset and behaviour matches exactly.
+`MINISCOPE_SYNC_DETECTION_SPEC` sets `"event_time_convention": "sample_before_transition"`,
+so `OnePhotonSeries.timestamps` and `MiniscopeFrameGate` hold sample k−1 in every output file,
+standalone or appended, and the frames the published traces cover carry exactly the published
+timestamps. This replaces the earlier approach (2026-10-20), where standalone files kept sample k
+and append mode measured the offset and shifted the frame times. The OptiTrack sync keeps the
+default `sample_after_transition` (`OPTITRACK_SYNC_DETECTION_SPEC`; see *OptiTrack*).
 
-**Note for later, append mode.** When the raw data is appended to the processed DANDI files,
-raw frames and published ROI traces will share one file, and the offset has to be reconciled
-there. Decide at that point:
+**Checked on 13 sessions across four subjects (2026-10-29).** Frame times are the first `n_frames`
+frame-gate transitions (`n_frames` = rows of `Miniscope/timeStamps.csv`), compared with
+`ROI_fluorescence.timestamps` of the published asset. With `sample_before_transition` every shared
+frame is bit-identical in every session; with the default every frame is one sample later.
 
-- how to reconcile it (for example, shift the appended imaging timestamps, and
-  `MiniscopeFrameGate` if it is carried over, back by one sample to match the published ones);
-- whether the offset is always exactly one sample. This was checked only on A0662/2022-08-29,
-  not on other sessions or subjects, so the append step should verify it per session before
-  changing any timestamps;
-- which `session_start_time` the combined file keeps (open question Q10: the published files
-  declare the Miniscope DAQ time, 7 s before the Intan start our raw files use).
+| Session | Gate channel | Frames | Published | First shared frame | Identical |
+|---|---|---|---|---|---|
+| A0662/2022_08_29 | ADC-01 | 35 762 | 35 711 | 51 | yes |
+| A0662/2022_10_03 | ADC-01 | 35 766 | 35 734 | 32 | yes |
+| A0662/2022_11_14 | ADC-00 | 35 785 | 35 751 | 34 | yes |
+| A0662/2022_12_09 | ADC-02 | 35 771 | 35 737 | 34 | yes |
+| A0667/2022_11_22 | ADC-02 | 35 765 | 35 712 | 53 | yes |
+| A0667/2023_02_02 | ADC-02 | 35 742 | 35 697 | 45 | yes |
+| A0667/2023_03_30 | ADC-02 | 35 767 | 35 732 | 35 | yes |
+| A0668/2022_11_22 | ADC-02 | 35 779 | 35 710 | 69 | yes |
+| A0668/2023_02_02 | ADC-02 | 35 737 | 35 706 | 31 | yes |
+| A0668/2023_03_30 | ADC-02 | 35 784 | 35 733 | 51 | yes |
+| A0670/2022_11_22 | ADC-02 | 35 773 | 35 728 | 45 | yes |
+| A0670/2023_01_09 | ADC-02 | 35 784 | 35 745 | 39 | yes |
+| A0670/2023_03_30 | ADC-02 | 35 792 | 35 758 | 34 | yes |
+
+A0642 was not checked here: its sessions are stored on the Drive only as ~10 GB zips with the
+video. All 343 sessions with raw and published data were checked later; see *Frame timing on hold*.
+
+### The frame-gate channel varies between sessions (found 2026-10-29)
+
+The two ADC inputs are not always ADC-00 and ADC-01. The headers list ADC-00/ADC-01 (A0662 until
+at least 2022-10-03), ADC-00/ADC-02, and ADC-02/ADC-07 (A0667 and A0668 on 2023-02-02), and the
+signals are not always on the same input: on A0662/2022-11-14 the frame gate is ADC-00 and the
+OptiTrack sync ADC-02. `_find_sync_channels` in `convert_session.py` therefore picks the frame gate
+from the signal (the one ADC channel high between 25 % and 75 % of the time; the OptiTrack sync is
+about 6 %) and stops if there are not exactly two ADC channels or not exactly one such channel. The
+descriptions do not name the channels.
 
 **Every DANDI timestamp in this Dandiset is an exact integer multiple of 50 µs** — i.e. an
 Intan sample index at 20 kHz. Verified on 120 Hz and 100 Hz behaviour sessions alike, and
@@ -305,7 +331,8 @@ re-checked 2026-09-08 across an 87-file sample spanning 6 subjects (max deviatio
 
 - **Sync-Q2 → RESOLVED.** The processed DANDI data uses the same hardware sync we derive.
 - **Sync-Q3 → RESOLVED.** ADC-00 = OptiTrack (120 Hz TTL, 0.5 ms), ADC-01 = Miniscope frame
-  gate (square wave, both edges). Channel assignment confirmed empirically.
+  gate (square wave, both edges). Channel assignment confirmed empirically for this session; other
+  sessions use other inputs (see *The frame-gate channel varies between sessions*).
 - **The DANDI time origin (t = 0) is the Intan recording start**, *not* the declared
   `session_start_time`. See open question Q10 — this is an inconsistency in the published files.
 
@@ -322,7 +349,7 @@ behaviour = tracking[tracking <= imaging[-1]]                      (143 880) == 
 
 Both counts match DANDI exactly. Note the two independent truncations:
 - **10 surplus ADC-01 edges** — the frame gate keeps toggling ~0.34 s after the DAQ stops
-  writing video. The current `nwbconverter.py` already handles this (`ms_timestamps[:n_frames]`).
+  writing video. `temporally_align_data_interfaces` handles this (`gate_times[:n_frames]`).
 - **51 leading imaging frames** dropped because they precede the first OptiTrack pulse.
 - **682 trailing ADC-00 edges / 191 trailing CSV rows** dropped (OptiTrack outlives Intan+scope).
 
@@ -371,6 +398,126 @@ Two metadata consequences:
 - `Subject.age` runs P202D → P311D, giving **A0662 date of birth = 2022-02-08**, consistent
   across every file. The same derivation will work for A0642 and A0667.
 
+
+---
+
+## OptiTrack (added 2026-10-29)
+
+The raw take is read with NeuroConv's `OptiTrackInterface`
+(https://github.com/catalystneuro/neuroconv/pull/2085) and written to `processing/behavior` as
+`PositionRigidBody` (X, Y, Z in meters) and `OrientationRigidBody` (Euler x, y, z in degrees, with
+Motive's rotation order in the description). Untracked frames are NaN. Every session gets these
+two names, also where Motive called the body `RigidBody01` (58 sessions), in
+`session_to_nwb`. The in-repo `interfaces/optitrack_interface.py` was removed.
+
+The OptiTrack sync is detected in the same `IntanConverter` call as the frame gate, on the other
+ADC channel `_find_sync_channels` returns, with `OPTITRACK_SYNC_DETECTION_SPEC` (rising edges,
+midpoint cut, first sample after the transition), and written as the `OptiTrackSync` events
+table. `temporally_align_data_interfaces` sets take frame i to pulse i and stops if there are
+fewer pulses than take frames. Motive keeps sending pulses while it is not recording, so every
+session has more pulses than take frames (24 to 27 466 more). `session_start_time` stays the
+Intan start; the take's `Capture Start Time` is not used.
+
+In append mode the published `acquisition/Position/2D_position` and `acquisition/head-direction`
+keep their values and timestamps. Their descriptions gain a sentence naming the raw series they
+come from and saying that 0 marks an untracked frame (16 frames in 4 A0642 sessions:
+2021-04-22, 04-23, 04-26, 04-27), and the position unit `m`, the only NWB Inspector finding on the
+combined files, becomes `meters`. The raw series and `OptiTrackSync` are added beside them.
+
+Open with the lab:
+- In the 7 A0642 sessions exported with XZY rotation order (2021-05-31 to 2021-06-08), the
+  published head direction is Rotation Y as in the YXZ sessions, which is not the same yaw.
+- Should the published untracked frames stay 0?
+
+---
+
+## Frame timing on hold (2026-10-30)
+
+Session counts. DANDI:001676 (version 0.251205.2137) has 406 assets: 402 imaging sessions of ten
+mice and 4 electrophysiology sessions. Raw data is on the Drive for the five mice of this
+conversion (A0642, A0662, A0667, A0668, A0670), which have 367 published imaging sessions. Of
+these, 17 A0642 sessions (2021-05-20, 2021-06-18 and 15 between 2021-09-28 and 2021-10-21) have
+no raw folder, and 7 A0642 raw zips are empty, leaving 343 sessions with both published and
+readable raw data; every count below is out of these. Three raw A0662 sessions (2022-09-20 to
+09-22) have no published file. The other five mice (A0671, A0676, A0678, A0682, A0683, 7 sessions
+each) have no raw data on the Drive.
+
+**Current rule (2026-11-05): the lab's detection.** The converter now detects frame-gate
+transitions with the rule in gviejo/PSBImaging `python/wrappers.py`
+(https://github.com/gviejo/PSBImaging/blob/main/python/wrappers.py):
+`scipy.signal.find_peaks(np.abs(np.diff(adc)), height=30000, distance=500)` on the raw ADC counts
+of the frame-gate channel, each peak being the last sample before a transition
+(`frame_gate_samples` in `nwbconverter.py`). Of two transitions closer than 500 samples only the
+one with the larger jump is kept. Video frame i is transition i, and the video is cut to the
+number of transitions when the gate ends first. This reproduces the published imaging timestamps
+sample for sample in all 15 glitch sessions, and in every other session checked so far. Decided
+with the project lead so the raw and published timestamps agree.
+
+The rule does not account for frames missing from the video, and neither do the published
+timestamps. Where the Miniscope lost frames the frame times are early by one frame period per lost
+frame from that point on (A0662/2022-12-02: 83 frames, 2.8 s, for the second half of the session;
+A0668/2023-02-09: 30 frames, 1 s). The 99 sessions with dropped frames, with gate and frame counts
+that differ, or that could not be checked are listed in `sessions_on_hold.py`, and the batch
+conversion leaves them out until the lab replies (2026-11-10). Since 2026-11-10 the OptiTrack take
+frames are also timed with the lab's rule (`optitrack_sync_samples`). The rule that skips them (`frame_times_from_gate`) is kept in
+git stash `stash@{0}`. The `MiniscopeFrameGate` events table still holds every transition,
+glitches included.
+
+The paragraphs below record how we got here.
+
+The converter times video frame i at frame-gate transition i, the rule that reproduces the
+published imaging timestamps: they are a contiguous run of gate transitions in 324 of 343
+sessions, and within one sample in 4 more. The other 15 have glitches in the gate (extra
+transitions inside one frame period, e.g. 521 + 150 samples in A0668/2023-02-09, a burst of 7 in
+A0667/2023-02-10); there the published timestamps are the gate transitions with the glitch
+transitions removed, by a rule we could not infer. In these sessions the converter counts each
+glitch transition as a frame, so its frame times fall one frame earlier than the published ones
+for every glitch passed.
+
+The Miniscope's USB timestamps also show frames missing from the video (2022-08-29 loses 10 at
+frame 718), which neither the published timestamps nor this rule account for. A rule that drops
+glitch transitions and skips the transitions of missing frames (`frame_times_from_gate`, with
+tests) changes the frame times of 77 sessions, by up to 79 frames, and both video durations and
+head-direction tuning favour it where the difference is 3 frames or more. It was held in a git
+stash until the lab shared the code behind the published timestamps (asked 2026-10-30), and
+restored to `nwbconverter.py` on 2026-11-04 so the glitch sessions can be compared
+(`notebooks/glitch_session_frame_timing.ipynb`).
+
+**Stash vs published in the 15 glitch sessions (2026-11-04).** `frame_times_from_gate` matches the
+published timestamps exactly in none of them, for three reasons:
+- Almost every glitch coincides with a frame lost from the video (the USB timestamps step by one
+  period there). The stash skips a transition for each lost frame; the published timestamps do so
+  in only 6 of the 27 glitch clusters, and not for the 154 frames lost at once in A0668/2023-02-09.
+  Without the missing-frame step the stash matches A0667 2023-01-19, 02-07, 02-09, 02-16 and
+  A0670 2023-03-28 exactly.
+- At a close pair the stash keeps the earlier transition and the published file sometimes the
+  later one (A0642 2021-07-05, A0667 2023-02-10, A0668 2023-02-09, 2023-02-10): 1 or 2 frames
+  differ by under 5 ms.
+- Where a glitch splits a period into two long parts (A0662 2022-09-15, 2022-09-27, A0667
+  2023-02-17, 2023-03-28, A0670 2023-03-20, first cluster of A0668 2023-02-16) the published file
+  drops two on-grid transitions and keeps the off-grid one between them. That skips one frame,
+  as the stash does for the lost frame, so only 2 or 3 frames around the glitch differ.
+On the frame grid (positions in median periods), the published file keeps every on-grid transition
+in 17 of the 27 clusters and leaves out an on-grid one for an off-grid one in 10: the 6 split
+periods above and 4 where a glitch falls just before or after a grid transition (A0642 2021-07-05,
+A0667 2023-02-10 burst, A0668 2023-02-10 gate 35126, A0670 2023-03-28). Of the gate-only rules
+tried, keep earlier, keep later and keep on-grid each match 15 clusters at their best threshold,
+drop-before-short 12, drop-after-short 8 and debounce none; none matches the split periods or the
+burst (`notebooks/glitch_session_frame_timing.ipynb`, *Which transitions the lab keeps*).
+
+With the clock drift removed, each frame's USB timestamp sits a fixed time after its gate
+transition to about 1 ms (90th percentile 1.4 ms), so it can say which transition of a glitch is
+the frame. For the 162 frames from 2 before to 3 after each glitch, the gate transition nearest the
+drift-corrected USB time is the stash's in 150 and the published one in 51. It favours the later
+transition of a close pair, as the published file does and the stash does not, in A0667
+2023-02-10 (2.4 ms apart), A0668 2023-02-09 (7.5 ms) and A0668 2023-02-10 (1.4 ms). The other
+mismatches are frames delivered late over USB.
+
+In 10 sessions the gate stops 1 to 8 frames before the video ends (A0642 2021-06-16, A0662
+2022-10-27, A0667 2022-12-07, A0668 2022-11-23, 2023-03-13, 2023-03-23, A0670 2023-01-11,
+2023-02-01, 2023-02-17, 2023-02-20). The published traces end at the last gate transition, and
+the converter leaves out the frames after it too (verified on A0662/2022-10-27: 35 744 of 35 745
+frames written, NWB Inspector clean).
 
 ---
 
@@ -447,8 +594,8 @@ The session directory is now found without the symlink, and the output declares
 asset: our **frame 51** carries timestamp `3.6635 s`, which is *exactly* the first imaging
 timestamp in `sub-A0662_ses-20220829T185721_behavior+ophys.nwb` — the raw file keeps the 51
 leading frames the lab dropped, and the shared Intan clock is what lines the two files up.
-*(With the NeuroConv decoder, frame 51 is at `3.66355 s`, one sample later; see the
-2026-10-20 cross-validation re-run.)*
+*(With NeuroConv's default convention frame 51 was at `3.66355 s`, one sample later; since
+2026-10-29 the converter uses `sample_before_transition` and frame 51 is at `3.6635 s` again.)*
 
 ---
 
@@ -477,26 +624,116 @@ cut behaviour at the last imaging frame. The raw conversion does **not** replica
 acquired AVI frame is written, each with its hardware timestamp decoded from the ADC-01 frame
 gate. Because both files sit on the same Intan clock, a user maps raw → processed by timestamp,
 and nothing has to be inferred from frame indices. Verified on the A0662/2022-08-29 asset: our
-frame 51 is the published file's first imaging frame. With the NeuroConv decoder its timestamp is
-`3.66355 s`, one 20 kHz sample after the published `3.6635 s`, and every later frame carries
-the same one-sample offset (2026-10-20 re-run).
+frame 51 is the published file's first imaging frame, and it and every later frame carry
+exactly the published timestamps (`sample_before_transition`, 2026-10-29).
 
 The one trim that remains is the *surplus gate edges* — ADC-01 kept toggling for ~0.34 s after
 the DAQ stopped writing video (35 772 edges vs 35 762 frames), so the decoded timestamp array is
-cut to the frame count (`ms_timestamps[:n_frames]` in `nwbconverter.py`). That discards timestamps
-with no corresponding frame, not frames.
+cut to the frame count (`gate_times[:n_frames]` in `nwbconverter.py`). That discards timestamps
+with no corresponding frame, not frames. The exception (2026-10-30): in 10 sessions the gate stops
+1 to 8 frames before the video ends, and the frames after its last transition, which have no
+time, are left out, as in the published traces (see *Frame timing on hold*).
 
 **3. The sync traces are written in full.**
 `TimeSeriesIntanSync` holds the complete `(n_samples, 2)` ADC array as acquired — both channels,
-no truncation, and no stub-test shortening either (the 2022-08-29 session writes all 24 210 720
-samples). Anyone can re-derive the frame times with a different threshold or edge convention.
+no truncation (the 2022-08-29 session writes all 24 210 720 samples). Anyone can re-derive the
+frame times with a different threshold or edge convention. *Stub conversions (2026-10-20):*
+`stub_test=True` now also shortens `TimeSeriesIntanSync`, passed to `IntanConverter` as
+`{"AnalogADCInput": {"stub_test": True}}`; the frame-gate events are still detected over the
+whole recording, so a stub keeps every `MiniscopeFrameGate` row.
 
-**4. Follow-up PR — publish all six OptiTrack DOF.**
+**4. Publish all six OptiTrack DOF.**
 The lab confirmed that `Position Y` (height), `Rotation X` (pitch) and `Rotation Z` (roll) should
 be included even though they were not analysed and are absent from the processed files: they may
-be useful to others. `OptiTrackInterface` already reads and writes all six (3-D `PoseEstimation`
-+ a yaw/pitch/roll `SpatialSeries`); what is missing is wiring it into `MiniscopeArcNWBConverter`
-and aligning it to ADC-00. Scheduled for a **follow-up PR**, not this one.
+be useful to others. Done 2026-10-29 with NeuroConv's `OptiTrackInterface`, aligned to the
+OptiTrack sync; see *OptiTrack*.
+
+---
+
+## Append mode: raw data added to a published DANDI:001676 file (2026-10-20)
+
+`session_to_nwb(..., processed_nwbfile_path=...)` writes
+`sub-{subject}_ses-{session_id}_behavior+ophys.nwb`: a copy of the session's published file with
+the raw session added. Without `processed_nwbfile_path` it writes the standalone raw file as
+before. Implementation: the private helpers at the end of `convert_session.py`.
+
+**Mechanism** (since 2026-10-30). The published file is read with `read_nwb` and the checks
+below run first. The published imaging plane and `1p Miniscope` device are removed, and
+`MiniscopeArcNWBConverter.add_to_nwbfile` (after `temporally_align_data_interfaces`) adds the raw
+session to the published file in memory, as it would to a new one: the raw imaging plane,
+Miniscope device and device model, `OnePhotonSeries`, `TimeSeriesIntanSync`, `MiniscopeFrameGate`,
+the raw OptiTrack series in a new `behavior` module, and `OptiTrackSync`. The published
+`PlaneSegmentation` is relinked to the raw plane, the file-level and subject metadata are updated
+from the conversion's metadata (below), NeuroConv's default backend configuration is applied, and
+the result is exported to the new path. The published file is only read; no raw file is written
+to disk. The export writes NWB 2.11.0 with the core, hdmf and ndx-miniscope schemas cached.
+
+Until 2026-10-30 the raw session was built as a separate in-memory file and its objects were
+moved into the published one. The current version gives the same file (all 311 groups, datasets,
+attributes and links compared on the 2022-08-29 stub), except that the published `2D_position`
+and `head-direction` datasets are now gzip-compressed: their description and unit change marks
+them modified, so the backend configuration covers them. Their values are unchanged.
+
+NeuroConv's own append mode
+(`run_conversion(append_on_disk_nwbfile=True)`) is not used: it modifies the file in place and can
+only add objects, and here existing ones change.
+
+**Checks before anything is written** (each stops it):
+- the subject IDs match;
+- the recording dates match (the published start time is the Miniscope DAQ clock and this
+  conversion's the Intan clock, seconds apart, so only the date is compared);
+- the published file has an imaging plane named `ImagingPlane`.
+
+**Metadata.** This conversion's metadata is the truth, except where only the published file has
+the information:
+
+| Kept as published | From this conversion |
+|---|---|
+| `session_description`, appended verbatim on a line starting `Session:` (environment, "session k of N", the CellReg column) | `session_description` from `metadata.yaml` (the raw data) followed by `ProcessedSessionDescription` from `metadata.yaml` (the processed data); raw-only files get the first part alone |
+| `experiment_description`, appended verbatim on a line starting `Protocol phase:` (per-phase protocol) | `experiment_description` from `metadata.yaml` |
+| `Subject.age` (this conversion sets none) | `session_start_time`, `timestamps_reference_time` (Intan start) |
+| all processed data: ROI masks and traces, CellReg tables, tuning curves, behaviour, FOV image | `identifier` (new UUID: a different file from the published asset) |
+| | `session_id` (`YYYY-MM-DD`), `experimenter`, `related_publications`, `keywords`, `institution`, `lab`; every `Subject` field this conversion sets |
+| | the raw `ImagingPlane` (AP/ML/DV `origin_coords` with `reference_frame`, `millimeters`, `Postsubiculum`, paper description, measured `imaging_rate`) and the ndx-miniscope `Miniscope` device with its DAQ settings and `DeviceModel` |
+
+Changing `session_start_time` moves no timestamp: every published timestamp is already relative
+to the Intan start (the published frame times are the Intan-clock times of the raw frames).
+
+**Timestamps.** The frame times come from the frame gate with `sample_before_transition`
+(see *Timestamp convention*), the same convention as the published imaging timestamps, so no
+shift is applied. Until 2026-10-29 this step measured a one-sample offset and shifted
+`OnePhotonSeries` and `MiniscopeFrameGate` by it. `TimeSeriesIntanSync` is stored as recorded.
+
+**Verified on A0662/2022-08-29** (stub and full, 2026-10-21): the full conversion with
+`processed_nwbfile_path` takes about 4 minutes, about the same as a standalone raw conversion,
+and writes 4.9 GB. All published datasets other than the two descriptions are value-identical to
+the source; frames 51 onward are bit-identical to the published ROI timestamps (then by a one-sample
+shift; since 2026-10-29 directly); the device is ndx-miniscope `Miniscope`; all raw datasets are gzip.
+NWB Inspector and `dandi validate` report only the published `2D_position` unit `m`.
+Regenerated 2026-10-30 with the raw OptiTrack take and the `meters` unit: 4.9 GB, the frames from
+51 on equal all 35 711 published ROI timestamps, the take times and position X, Z equal the
+published behaviour, and NWB Inspector reports no issues.
+
+**Verified on A0662/2022-11-14** (full, 2026-10-29), the first session with the frame gate on
+ADC-00 and the OptiTrack sync on ADC-02. The combined file is 5.6 GB. `OnePhotonSeries` has 35 785
+frames (the `timeStamps.csv` count), monotonic timestamps at 29.81 Hz, and frames 34 onward are
+bit-identical to all 35 751 published ROI timestamps. `MiniscopeFrameGate` has 35 785 rows equal to
+the frame times. Of the 46 published datasets, only the
+ones this conversion replaces by design differ (file and subject metadata, imaging plane fields,
+`identifier`, start and reference times), and only the `1p Miniscope` device and the old cached
+schemas are gone. NWB Inspector and `dandi validate` report only the published `2D_position` unit `m`.
+This file predates the OptiTrack additions and the fixed time zone, and has not been regenerated.
+
+**Time zone (decided 2026-10-29).** Every published `session_start_time` (all 297 files of
+A0662, A0667, A0668 and A0670) carries `-04:00`, including sessions between 2022-11-06 and
+2023-03-12, when Montréal was on EST (`-05:00`). This conversion uses the same fixed `-04:00`
+(`SESSION_TZ` in `constants.py`), so the combined files agree with the published start times.
+The 2022-11-14 verification above ran with `America/Toronto` and wrote `10:14:44-05:00`.
+
+**Batch.** `dataset_to_nwb(..., processed_dir_path=...)` gives each session the published
+`sub-{subject}/sub-{subject}_ses-{YYYYMMDD}T*_*.nwb` (the `dandi download` layout) of the same
+subject and date as `processed_nwbfile_path`, converts sessions without one to raw files, and
+stops if a date has several.
 
 ---
 
@@ -504,17 +741,20 @@ and aligning it to ADC-00. Scheduled for a **follow-up PR**, not this one.
 
 | Stream | Interface | source_data | NWB output | Status |
 |--------|-----------|-------------|------------|--------|
-| Miniscope video | `MiniscopeImagingInterface` | `folder_path=.../Miniscope` | `OnePhotonSeries` in acquisition | Ready to test |
-| Intan ADC inputs | `IntanConverter` (child `AnalogADCInput`) | `file_path=.../{subject}_{YYMMDD}_{HHMMSS}/info.rhd`, `detection_configuration=MINISCOPE_SYNC_DETECTION_CONFIGURATION` | `TimeSeriesIntanSync` in acquisition (metadata key `intan_adc_input`) | Implemented |
-| Miniscope frame gate | `IntanConverter` (child `AnalogEvents`) | same entry: ADC-01, `binarize: midpoint`, `value_change` | `MiniscopeFrameGate` `EventsTable` in `events`; first `n_frames` rows become `OnePhotonSeries.timestamps` | Implemented |
-| OptiTrack tracking | CUSTOM `OptiTrackInterface` | `file_path=.../Take*.csv` | `PoseEstimation` (X, Y, Z) + rotation `SpatialSeries` (yaw, pitch, roll) in behavior | Deferred to follow-up PR — all 6 DOF, see below |
+| Miniscope video | `MiniscopeImagingInterface` | `folder_path=.../Miniscope` | `OnePhotonSeries` in acquisition | Implemented |
+| Intan ADC inputs | `IntanConverter` (child `AnalogADCInput`) | `file_path=.../{subject}_{YYMMDD}_{HHMMSS}/info.rhd`, `detection_configuration` with `MINISCOPE_SYNC_DETECTION_SPEC` and `OPTITRACK_SYNC_DETECTION_SPEC` on the channels `_find_sync_channels` returns | `TimeSeriesIntanSync` in acquisition (metadata key `intan_adc_input`) | Implemented |
+| Miniscope frame gate | `IntanConverter` (child `AnalogEvents`) | same entry: the frame-gate channel, `binarize: midpoint`, `value_change`, `sample_before_transition` | `MiniscopeFrameGate` `EventsTable` in `events`; row i is the time of video frame i (`OnePhotonSeries.timestamps`) | Implemented |
+| OptiTrack sync | `IntanConverter` (child `AnalogEvents`) | same entry: the OptiTrack channel, `binarize: midpoint`, `rising` | `OptiTrackSync` `EventsTable` in `events`; the first `n` rows become the take's timestamps | Implemented |
+| OptiTrack tracking | NeuroConv `OptiTrackInterface` | `file_path=.../Take*.csv` | `PositionRigidBody` (X, Y, Z, meters) + `OrientationRigidBody` (Euler x, y, z, degrees) in behavior | Implemented |
 
 ### Intan ADC — data provenance rationale
 
 The raw ADC traces (`TimeSeriesIntanSync`) are stored in the NWB file rather than discarded after timestamp extraction. The two channels carry the hardware sync signals from which all inter-system timestamps are derived:
 
-- **ADC-00** — OptiTrack frame sync (120 Hz TTL)
-- **ADC-01** — Miniscope frame gate (square wave; rising = even frame, falling = odd frame)
+- OptiTrack frame sync (120 Hz TTL)
+- Miniscope frame gate (square wave; rising = even frame, falling = odd frame)
+
+Which ADC inputs carry them varies between sessions; see *The frame-gate channel varies between sessions*.
 
 Storing the raw waveforms means any future user can independently verify or re-derive the per-frame timestamps with a different threshold or algorithm, without needing access to the original Intan recording. The signals compress extremely well in HDF5 (mostly flat with sharp transitions), adding only ~2–5 MB per session in practice.
 
@@ -535,13 +775,13 @@ Storing the raw waveforms means any future user can independently verify or re-d
 ## Open Questions
 
 - [ ] **Q1**: Why are `time.dat` and `analogin.dat` empty (0 bytes) for session 2022_07_25 but not 2022_07_28? Upload issue or intentional?
-- [x] **Q2**: What are the 2 analog input channels in Intan? → ADC-00 = OptiTrack sync (120 Hz TTL), ADC-01 = Miniscope frame gate (square wave). See Synchronization Analysis section.
-- [ ] **Q3**: How do these sessions map to existing NWB files in DANDI:001676? What is the session naming convention used there?
-- [ ] **Q4**: Total dataset scale — how many subjects and sessions in the full raw Miniscope dataset?
-- [ ] **Q5**: Is the OptiTrack rigid body tracking head direction, body position, or both?
+- [x] **Q2**: What are the 2 analog input channels in Intan? → OptiTrack sync (120 Hz TTL) and Miniscope frame gate (square wave), on inputs that vary between sessions. See *The frame-gate channel varies between sessions*.
+- [x] **Q3**: How do these sessions map to existing NWB files in DANDI:001676? What is the session naming convention used there?
+- [x] **Q4**: Total dataset scale — how many subjects and sessions in the full raw Miniscope dataset?
+- [x] **Q5**: Is the OptiTrack rigid body tracking head direction, body position, or both?
 - [ ] **Q6**: Are there additional sessions/subjects not yet uploaded to Google Drive?
 - [x] **Q7** *(resolved 2026-08-12 from DANDI NWB stream)*: species=Mus musculus, genotype=C57BL/6J, sex=M, indicator=GCaMP6f. Per-subject date-of-birth / weight still needed from lab.
-- [ ] **Q8**: Session timezone — what timezone were recordings made in? (likely America/Toronto for McGill)
+- [x] **Q8**: Session timezone — what timezone were recordings made in? → Fixed `-04:00`, as in the published files (decided 2026-10-29).
 
 ---
 
@@ -607,6 +847,6 @@ is deprecated and, under neuroconv 0.10, silently loses the hand-written imaging
 - [x] Phase 2: Data inspection — COMPLETE
 - [x] Phase 3: Metadata collection — COMPLETE (ophys metadata confirmed from DANDI:001676 NWB stream 2026-08-12; per-subject DoB/weight pending from lab)
 - [x] Phase 4: Synchronization analysis — COMPLETE (analyzed during data inspection; open Sync-Q1 through Q4)
-- [ ] Phase 5: Code generation
+- [x] Phase 5: Code generation
 - [ ] Phase 6: Testing & validation
 - [ ] Phase 7: DANDI upload
