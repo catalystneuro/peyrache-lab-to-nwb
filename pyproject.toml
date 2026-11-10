@@ -13,17 +13,32 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+# Shared by every conversion. Each conversion's own dependencies are an optional extra, so each can
+# be installed in its own environment: pip install -e ".[miniscope_arc]" or ".[dandi_000939]".
 dependencies = [
-    # Intan analog events (catalystneuro/neuroconv#2052) are not yet in a release.
-    "neuroconv[intan,miniscope] @ git+https://github.com/catalystneuro/neuroconv.git@main",
+    "pynwb",
+    "hdmf",
     "nwbinspector",
-    "ndx-miniscope",
-    "roiextractors",
     "pandas",
     "numpy",
-    "tqdm",
-    "hdmf",
     "ipykernel>=7.3.0",
+]
+
+[project.optional-dependencies]
+# DANDI:001676: raw Miniscope, Intan and OptiTrack data
+miniscope_arc = [
+    # Intan analog events (https://github.com/catalystneuro/neuroconv/pull/2052) are not yet in a release.
+    "neuroconv[intan,miniscope,optitrack] @ git+https://github.com/catalystneuro/neuroconv.git@main",
+    "ndx-miniscope",
+    "roiextractors",
+    "tqdm",
+]
+# DANDI:000939: HED annotation of the published sleep states
+dandi_000939 = [
+    "ndx-hed==0.3.0",
+    "dandi",
+    "h5py",
+    "pyyaml",
 ]
 
 [project.urls]
