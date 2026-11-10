@@ -1,0 +1,37 @@
+# HED annotations and ontology links added to the sleep scoring of DANDI:000939.
+Dandiset:
+  identifier: "000939"
+  version: "0.261016.2310"
+
+# HED schemas, as in the proposed NWB best practice for sleep states
+# (https://github.com/NeurodataWithoutBorders/nwbinspector/pull/775).
+HedLabMetaData:
+  hed_schema_version: '["8.4.0", "sc:score_2.1.0"]'
+
+# One entry per value of the "state" column of /intervals/sleep_states.
+# The MeaningsTable is named "state_meanings": hdmf-common names it after the column it describes.
+SleepStateMeanings:
+  description: >-
+    Meaning of each sleep state label. Scored with the automated SleepScoreMaster algorithm and manually
+    checked in TheStateEditor (Buzsaki lab), using LFP and a pseudo-EMG derived from correlated
+    high-frequency activity across probe channels (Duszkiewicz et al., 2024; Watson et al., 2016).
+  hed_description: HED annotation of each sleep state label
+  states:
+    wake:
+      meaning: Wakefulness.
+      HED: Awake
+      ontology_term:
+        id: NBO:0000066
+        uri: http://purl.obolibrary.org/obo/NBO_0000066
+    nrem:
+      meaning: Non-rapid eye movement (NREM) sleep.
+      HED: Asleep
+      ontology_term:
+        id: NBO:0000161
+        uri: http://purl.obolibrary.org/obo/NBO_0000161
+    rem:
+      meaning: Rapid eye movement (REM) sleep.
+      HED: Asleep, sc:Sleep-stage-REM
+      ontology_term:
+        id: NBO:0000159
+        uri: http://purl.obolibrary.org/obo/NBO_0000159
