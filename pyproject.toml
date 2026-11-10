@@ -16,6 +16,8 @@ classifiers = [
 dependencies = [
     # Intan analog events (catalystneuro/neuroconv#2052) are not yet in a release.
     "neuroconv[intan,miniscope,optitrack] @ git+https://github.com/catalystneuro/neuroconv.git@main",
+    # Frame-gate detection uses the lab's scipy.signal.find_peaks rule.
+    "scipy",
     "nwbinspector",
     "ndx-miniscope",
     "roiextractors",
