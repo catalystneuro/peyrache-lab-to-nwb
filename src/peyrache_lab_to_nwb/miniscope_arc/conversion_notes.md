@@ -454,9 +454,12 @@ sample for sample in all 15 glitch sessions, and in every other session checked 
 with the project lead so the raw and published timestamps agree.
 
 The rule does not account for frames missing from the video, and neither do the published
-timestamps. Where the Miniscope lost frames the frame times are late by one frame period per lost
+timestamps. Where the Miniscope lost frames the frame times are early by one frame period per lost
 frame from that point on (A0662/2022-12-02: 83 frames, 2.8 s, for the second half of the session;
-A0668/2023-02-09: 30 frames, 1 s). The rule that skips them (`frame_times_from_gate`) is kept in
+A0668/2023-02-09: 30 frames, 1 s). The 99 sessions with dropped frames, with gate and frame counts
+that differ, or that could not be checked are listed in `sessions_on_hold.py`, and the batch
+conversion leaves them out until the lab replies (2026-11-10). Since 2026-11-10 the OptiTrack take
+frames are also timed with the lab's rule (`optitrack_sync_samples`). The rule that skips them (`frame_times_from_gate`) is kept in
 git stash `stash@{0}`. The `MiniscopeFrameGate` events table still holds every transition,
 glitches included.
 
