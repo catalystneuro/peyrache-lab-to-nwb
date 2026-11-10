@@ -45,8 +45,12 @@ cd peyrache-lab-to-nwb
 
 uv venv
 source .venv/bin/activate
-uv pip install -e .
+uv pip install -e ".[miniscope_arc]"
 ```
+
+Each conversion has its own optional dependencies, so each can have its own environment:
+`miniscope_arc` (DANDI:001676) is installed with `".[miniscope_arc]"` and `dandi_000939` (HED annotation of
+the DANDI:000939 sleep states) with `".[dandi_000939]"`. See `src/peyrache_lab_to_nwb/dandi_000939/README.md`.
 
 ---
 
